@@ -14,28 +14,71 @@ class StoreSetupScreen extends StatefulWidget {
 
 class _StoreSetupScreenState extends State<StoreSetupScreen> {
   int _step = 0;
+  late final TextEditingController _storeName;
+  late final TextEditingController _description;
+  final _address = TextEditingController();
   final Set<String> _selectedCategories = {'Meals'};
   late List<OperatingHours> _hours;
   late DeliverySettings _delivery;
   bool _initialized = false;
+  bool _saving = false;
+  String? _error;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (!_initialized) {
-      final vendor = context.read<VendorProvider>().vendor;
-      _hours = vendor.operatingHours;
-      _delivery = vendor.deliverySettings;
+      final provider = context.read<VendorProvider>();
+      _storeName = TextEditingController(text: provider.pendingStoreName);
+      _description = TextEditingController(text: provider.pendingStoreDescription);
+      _hours = OperatingHours.defaultWeek();
+      _delivery = DeliverySettings();
       _initialized = true;
     }
   }
 
-  void _finish() {
+  @override
+  void dispose() {
+    _storeName.dispose();
+    _description.dispose();
+    _address.dispose();
+    super.dispose();
+  }
+
+  Future<void> _finish() async {
+    if (_storeName.text.trim().isEmpty) {
+      setState(() {
+        _step = 0;
+        _error = 'Store name is required';
+      });
+      return;
+    }
+    if (_address.text.trim().isEmpty) {
+      setState(() {
+        _step = 0;
+        _error = 'Store address is required';
+      });
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
     final provider = context.read<VendorProvider>();
-    provider.updateCategories(_selectedCategories.toList());
-    provider.updateOperatingHours(_hours);
-    provider.updateDeliverySettings(_delivery);
-    provider.completeStoreSetup();
+    final ok = await provider.createStore(
+      storeName: _storeName.text.trim(),
+      description: _description.text.trim(),
+      address: _address.text.trim(),
+      categories: _selectedCategories.toList(),
+      delivery: _delivery,
+      hours: _hours,
+    );
+    if (!mounted) return;
+    setState(() {
+      _saving = false;
+      _error = ok ? null : (provider.lastAuthError ?? 'Could not create the store');
+    });
+    if (!ok) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const MainShell()),
       (route) => false,
@@ -44,11 +87,11 @@ class _StoreSetupScreenState extends State<StoreSetupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final steps = [_categoriesStep(), _hoursStep(), _deliveryStep()];
+    final steps = [_detailsStep(), _categoriesStep(), _hoursStep(), _deliveryStep()];
     return Scaffold(
       appBar: AppBar(
-        title: Text('Set Up Your Store (${_step + 1}/3)'),
-        automaticallyImplyLeading: _step > 0,
+        title: Text('Set Up Your Store (${_step + 1}/4)'),
+        automaticallyImplyLeading: false,
         leading: _step > 0
             ? IconButton(
                 icon: const Icon(Icons.arrow_back),
@@ -62,7 +105,7 @@ class _StoreSetupScreenState extends State<StoreSetupScreen> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: 8),
               child: Row(
-                children: List.generate(3, (i) {
+                children: List.generate(4, (i) {
                   return Expanded(
                     child: Container(
                       margin: const EdgeInsets.symmetric(horizontal: 3),
@@ -82,22 +125,66 @@ class _StoreSetupScreenState extends State<StoreSetupScreen> {
                 child: steps[_step],
               ),
             ),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(_error!, style: const TextStyle(color: AppColors.danger, fontSize: 13)),
+              ),
             Padding(
               padding: const EdgeInsets.all(AppSpacing.lg),
-              child: ElevatedButton(
-                onPressed: () {
-                  if (_step < 2) {
-                    setState(() => _step++);
-                  } else {
-                    _finish();
-                  }
-                },
-                child: Text(_step < 2 ? 'Next' : 'Finish Setup'),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _saving
+                      ? null
+                      : () {
+                          if (_step < 3) {
+                            setState(() => _step++);
+                          } else {
+                            _finish();
+                          }
+                        },
+                  child: _saving
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child:
+                              CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
+                        )
+                      : Text(_step < 3 ? 'Next' : 'Finish Setup'),
+                ),
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _detailsStep() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Tell us about your store', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 6),
+        const Text('Customers see this on your store profile.',
+            style: TextStyle(color: AppColors.textSecondary)),
+        const SizedBox(height: 20),
+        const Text('Store Name', style: TextStyle(fontWeight: FontWeight.w600)),
+        const SizedBox(height: 8),
+        TextFormField(controller: _storeName),
+        const SizedBox(height: 16),
+        const Text('Description', style: TextStyle(fontWeight: FontWeight.w600)),
+        const SizedBox(height: 8),
+        TextFormField(controller: _description, maxLines: 3),
+        const SizedBox(height: 16),
+        const Text('Store Address', style: TextStyle(fontWeight: FontWeight.w600)),
+        const SizedBox(height: 8),
+        TextFormField(
+          controller: _address,
+          decoration: const InputDecoration(hintText: 'e.g. Rizal St, Poblacion, Ibajay, Aklan'),
+        ),
+      ],
     );
   }
 

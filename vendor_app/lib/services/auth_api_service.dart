@@ -38,6 +38,54 @@ class AuthApiService {
         }));
   }
 
+  // ---- Vendor registration (email OTP, role=vendor) ----
+
+  /// Step 1: sends the OTP to [email].
+  Future<void> registerStart({
+    required String fullName,
+    required String mobileNumber,
+    required String email,
+  }) async {
+    try {
+      await _client.post('/auth/register/start', body: {
+        'full_name': fullName,
+        'mobile_number': mobileNumber,
+        'email': email,
+        'role': 'vendor',
+      });
+    } on ApiException catch (e) {
+      throw AuthException(e.message, statusCode: e.statusCode);
+    }
+  }
+
+  /// Steps 2-3: verify the emailed OTP.
+  Future<void> verifyRegistrationOtp({
+    required String email,
+    required String otpCode,
+  }) async {
+    try {
+      await _client.post('/auth/register/verify-otp', body: {
+        'email': email,
+        'otp_code': otpCode,
+        'purpose': 'registration',
+      });
+    } on ApiException catch (e) {
+      throw AuthException(e.message, statusCode: e.statusCode);
+    }
+  }
+
+  /// Step 4: set the password, creating the vendor account.
+  Future<AuthTokens> setPassword({
+    required String email,
+    required String password,
+  }) async {
+    return _tokened(() => _client.post('/auth/register/set-password', body: {
+          'email': email,
+          'password': password,
+          'confirm_password': password,
+        }));
+  }
+
   Future<AuthTokens> refresh(String refreshToken) async {
     return _tokened(
       () => _client.post('/auth/refresh', body: {'refresh_token': refreshToken}),

@@ -7,20 +7,25 @@ import '../services/api_client.dart';
 import '../services/auth_api_service.dart';
 import '../services/preferences_service.dart';
 import '../services/vendor_api_service.dart';
-import '../services/mock_data_service.dart';
 
 /// Real store management against /vendor/me + /auth/*.
 ///
-/// Login is by mobile number + password with a vendor-role account. The
-/// store profile, status, hours, delivery settings and categories all
-/// persist server-side; a local cache keeps the last known state for
-/// offline viewing.
+/// Login is by mobile number + password with a vendor-role account. New
+/// vendors register (email OTP), set a password, then create their store.
+/// Everything persists server-side; a local cache keeps the last known
+/// state for offline viewing.
 class VendorProvider extends ChangeNotifier {
   VendorProvider({ApiClient? apiClient})
       : _client = apiClient ?? ApiClient(),
         api = VendorApiService(apiClient ?? ApiClient()),
         _auth = AuthApiService(apiClient ?? ApiClient()) {
-    _vendor = MockDataService.buildVendor();
+    _vendor = VendorProfile(
+      id: '',
+      ownerName: '',
+      storeName: '',
+      mobileNumber: '',
+      email: '',
+    );
   }
 
   final ApiClient _client;
@@ -35,11 +40,24 @@ class VendorProvider extends ChangeNotifier {
   String? lastAuthError;
   bool _isBusy = false;
 
+  // In-flight registration state (register form -> OTP -> password -> setup)
+  String? _pendingEmail;
+  String? _pendingOwnerName;
+  String? _pendingMobile;
+  String? _pendingStoreName;
+  String? _pendingStoreDescription;
+
   VendorProfile get vendor => _vendor;
   bool get isAuthenticated => _isAuthenticated;
   bool get hasCompletedStoreSetup => _hasCompletedStoreSetup;
   bool get restored => _restored;
   bool get isBusy => _isBusy;
+
+  /// Store details collected during registration, shown prefilled in the
+  /// store setup flow.
+  String get pendingStoreName => _pendingStoreName ?? '';
+  String get pendingStoreDescription => _pendingStoreDescription ?? '';
+  String get pendingOwnerName => _pendingOwnerName ?? '';
 
   /// Restores the persisted session: validates the stored access token
   /// against /vendor/me (refreshing once if expired) and reloads the live
@@ -55,7 +73,13 @@ class VendorProvider extends ChangeNotifier {
       try {
         _vendor = VendorProfile.fromJson(jsonDecode(profileJson) as Map<String, dynamic>);
       } catch (_) {
-        _vendor = MockDataService.buildVendor();
+        _vendor = VendorProfile(
+          id: '',
+          ownerName: '',
+          storeName: '',
+          mobileNumber: '',
+          email: '',
+        );
       }
     }
 
@@ -74,7 +98,11 @@ class VendorProvider extends ChangeNotifier {
     try {
       await _loadStore();
     } on StoreApiException catch (e) {
-      if (e.isUnauthorized && refresh != null && refresh.isNotEmpty) {
+      if (e.statusCode == 404) {
+        // Signed in but the store hasn't been created yet — route through
+        // the setup flow.
+        _hasCompletedStoreSetup = false;
+      } else if (e.isUnauthorized && refresh != null && refresh.isNotEmpty) {
         try {
           final tokens = await _auth.refresh(refresh);
           await _saveTokens(tokens);
@@ -85,7 +113,7 @@ class VendorProvider extends ChangeNotifier {
           // Offline — keep cached profile.
         }
       }
-      // Non-auth errors (offline): keep cached profile.
+      // Other errors (offline): keep cached profile.
     } catch (_) {
       // Offline — keep cached profile.
     }
@@ -149,6 +177,139 @@ class VendorProvider extends ChangeNotifier {
     _client.authToken = null;
     await PreferencesService.remove(PreferencesService.kAccessToken);
     await PreferencesService.remove(PreferencesService.kRefreshToken);
+  }
+
+  // ---- Registration (Steps 1-4) + store creation ----
+
+  /// Step 1: sends the OTP to [email] for a new vendor account.
+  Future<bool> startRegistration({
+    required String ownerName,
+    required String mobileNumber,
+    required String email,
+    required String storeName,
+    required String storeDescription,
+  }) async {
+    lastAuthError = null;
+    _pendingEmail = email;
+    _pendingOwnerName = ownerName;
+    _pendingMobile = mobileNumber;
+    _pendingStoreName = storeName;
+    _pendingStoreDescription = storeDescription;
+    _isBusy = true;
+    notifyListeners();
+    try {
+      await _auth.registerStart(
+        fullName: ownerName,
+        mobileNumber: mobileNumber,
+        email: email,
+      );
+      return true;
+    } on AuthException catch (e) {
+      lastAuthError = e.message;
+      return false;
+    } finally {
+      _isBusy = false;
+      notifyListeners();
+    }
+  }
+
+  /// Steps 2-3: verify the emailed OTP.
+  Future<bool> verifyRegistrationOtp(String code) async {
+    lastAuthError = null;
+    _isBusy = true;
+    notifyListeners();
+    try {
+      await _auth.verifyRegistrationOtp(email: _pendingEmail ?? '', otpCode: code);
+      return true;
+    } on AuthException catch (e) {
+      lastAuthError = e.message;
+      return false;
+    } finally {
+      _isBusy = false;
+      notifyListeners();
+    }
+  }
+
+  Future<String> resendRegistrationOtp() async {
+    lastAuthError = null;
+    try {
+      await _auth.registerStart(
+        fullName: _pendingOwnerName ?? '',
+        mobileNumber: _pendingMobile ?? '',
+        email: _pendingEmail ?? '',
+      );
+    } on AuthException catch (e) {
+      lastAuthError = e.message;
+    }
+    return '';
+  }
+
+  /// Step 4: creates the vendor account and signs in. Store details are
+  /// collected next (StoreSetupScreen).
+  Future<bool> completeRegistration(String password) async {
+    lastAuthError = null;
+    _isBusy = true;
+    notifyListeners();
+    try {
+      final tokens = await _auth.setPassword(email: _pendingEmail ?? '', password: password);
+      await _saveTokens(tokens);
+      _client.authToken = tokens.accessToken;
+      _mobileNumber = _pendingMobile;
+      await PreferencesService.setString(
+          PreferencesService.kOwnerMobile, _pendingMobile ?? '');
+      _isAuthenticated = true;
+      _hasCompletedStoreSetup = false;
+      return true;
+    } on AuthException catch (e) {
+      lastAuthError = e.message;
+      return false;
+    } finally {
+      _isBusy = false;
+      notifyListeners();
+    }
+  }
+
+  /// Creates the store (POST /vendor/me) after registration, then loads
+  /// the live profile. Returns false and sets [lastAuthError] on failure.
+  Future<bool> createStore({
+    required String storeName,
+    required String description,
+    required String address,
+    required List<String> categories,
+    required DeliverySettings delivery,
+    required List<OperatingHours> hours,
+  }) async {
+    lastAuthError = null;
+    _isBusy = true;
+    notifyListeners();
+    try {
+      final dayNames = OperatingHours.defaultWeek().map((h) => h.day).toList();
+      await api.createStore({
+        'store_name': storeName,
+        'description': description.isEmpty ? null : description,
+        'address': address,
+        'contact_number': _mobileNumber ?? '',
+        'categories': categories,
+        'delivery_enabled': delivery.deliveryEnabled,
+        'pickup_enabled': delivery.pickupEnabled,
+        'scheduled_delivery_enabled': delivery.scheduledDeliveryEnabled,
+        'base_delivery_fee': delivery.baseDeliveryFee,
+        'delivery_barangays': delivery.deliveryBarangays,
+        'hours': [
+          for (var i = 0; i < hours.length; i++) hours[i].toApi(dayNames.indexOf(hours[i].day)),
+        ],
+      });
+      await _loadStore();
+      _hasCompletedStoreSetup = true;
+      await PreferencesService.setBool(PreferencesService.kSetupDone, true);
+      return true;
+    } on StoreApiException catch (e) {
+      lastAuthError = e.message;
+      return false;
+    } finally {
+      _isBusy = false;
+      notifyListeners();
+    }
   }
 
   /// Real credential check (login round-trip) for the Change Password flow.

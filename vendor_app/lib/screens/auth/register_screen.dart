@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../../providers/vendor_provider.dart';
 import '../../theme/app_theme.dart';
 import 'otp_screen.dart';
 
@@ -16,6 +18,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _email = TextEditingController();
   final _storeName = TextEditingController();
   final _storeDescription = TextEditingController();
+  bool _loading = false;
 
   @override
   void dispose() {
@@ -27,8 +30,25 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
-  void _continue() {
+  Future<void> _continue() async {
     if (!_formKey.currentState!.validate()) return;
+    setState(() => _loading = true);
+    final provider = context.read<VendorProvider>();
+    final ok = await provider.startRegistration(
+      ownerName: _ownerName.text.trim(),
+      mobileNumber: _mobile.text.trim(),
+      email: _email.text.trim(),
+      storeName: _storeName.text.trim(),
+      storeDescription: _storeDescription.text.trim(),
+    );
+    if (!mounted) return;
+    setState(() => _loading = false);
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(provider.lastAuthError ?? 'Could not send the code')),
+      );
+      return;
+    }
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => OtpScreen(email: _email.text.trim())),
     );
@@ -94,7 +114,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   ],
                 ),
                 const SizedBox(height: 28),
-                ElevatedButton(onPressed: _continue, child: const Text('Continue')),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _loading ? null : _continue,
+                    child: _loading
+                        ? const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child:
+                                CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
+                          )
+                        : const Text('Continue'),
+                  ),
+                ),
               ],
             ),
           ),

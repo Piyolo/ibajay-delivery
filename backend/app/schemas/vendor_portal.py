@@ -4,37 +4,6 @@ import uuid
 from pydantic import BaseModel, field_validator
 
 
-# ---- Store profile ----
-
-class VendorMeUpdate(BaseModel):
-    store_name: str | None = None
-    description: str | None = None
-    address: str | None = None
-    latitude: float | None = None
-    longitude: float | None = None
-    contact_number: str | None = None
-    logo_url: str | None = None
-    banner_url: str | None = None
-
-
-class StoreStatusUpdate(BaseModel):
-    is_open: bool | None = None
-    is_paused: bool | None = None
-
-
-# ---- Delivery settings ----
-
-class DeliverySettingsUpdate(BaseModel):
-    delivery_enabled: bool | None = None
-    pickup_enabled: bool | None = None
-    scheduled_delivery_enabled: bool | None = None
-    delivery_radius_km: float | None = None
-    base_delivery_fee: float | None = None
-    fee_per_km: float | None = None
-    estimated_prep_minutes: int | None = None
-    delivery_barangays: list[str] | None = None
-
-
 # ---- Operating hours ----
 
 class OperatingHourIn(BaseModel):
@@ -65,6 +34,56 @@ class OperatingHourIn(BaseModel):
 class HoursUpdate(BaseModel):
     hours: list[OperatingHourIn]
 
+
+# ---- Store profile ----
+
+class VendorStoreCreate(BaseModel):
+    """Creates the store for a freshly-registered vendor account."""
+    store_name: str
+    description: str | None = None
+    address: str
+    latitude: float = 11.5459   # Ibajay town center default
+    longitude: float = 122.2039
+    contact_number: str = ""
+    categories: list[str] = []
+    delivery_enabled: bool = True
+    pickup_enabled: bool = True
+    scheduled_delivery_enabled: bool = False
+    base_delivery_fee: float = 30
+    delivery_barangays: list[str] = []
+    hours: list[OperatingHourIn] = []
+
+
+class VendorMeUpdate(BaseModel):
+    store_name: str | None = None
+    description: str | None = None
+    address: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    contact_number: str | None = None
+    logo_url: str | None = None
+    banner_url: str | None = None
+class StoreStatusUpdate(BaseModel):
+    is_open: bool | None = None
+    is_paused: bool | None = None
+
+
+# ---- Delivery settings ----
+
+class DeliverySettingsUpdate(BaseModel):
+    delivery_enabled: bool | None = None
+    pickup_enabled: bool | None = None
+    scheduled_delivery_enabled: bool | None = None
+    delivery_radius_km: float | None = None
+    base_delivery_fee: float | None = None
+    fee_per_km: float | None = None
+    estimated_prep_minutes: int | None = None
+    delivery_barangays: list[str] | None = None
+
+
+# ---- Operating hours (update) ----
+
+# (OperatingHourIn / HoursUpdate are defined at the top of the module)
 
 # ---- Categories ----
 

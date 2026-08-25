@@ -24,8 +24,10 @@ from app.schemas.vendor_portal import (
     FoodItemCreate,
     FoodItemUpdate,
     HoursUpdate,
+    OperatingHourIn,
     StoreStatusUpdate,
     VendorMeUpdate,
+    VendorStoreCreate,
 )
 
 router = APIRouter(prefix="/vendor/me", tags=["Vendor Portal"])
@@ -60,6 +62,62 @@ def _format_time(value: time) -> str:
 # ---------------------------------------------------------------------------
 # Store profile / status
 # ---------------------------------------------------------------------------
+
+@router.post("", status_code=status.HTTP_201_CREATED)
+async def create_store(
+    payload: VendorStoreCreate,
+    user: User = Depends(require_vendor),
+    db: AsyncSession = Depends(get_db),
+):
+    """Creates the store for a freshly-registered vendor account (no store yet)."""
+    existing = await db.execute(select(Vendor).where(Vendor.owner_id == user.id))
+    if existing.scalar_one_or_none() is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "This account already has a store")
+
+    vendor = Vendor(
+        owner_id=user.id,
+        store_name=payload.store_name,
+        description=payload.description,
+        address=payload.address,
+        latitude=payload.latitude,
+        longitude=payload.longitude,
+        contact_number=payload.contact_number or user.mobile_number,
+        is_open=False,
+    )
+    db.add(vendor)
+    await db.flush()
+
+    db.add(
+        VendorDeliverySettings(
+            vendor_id=vendor.id,
+            delivery_enabled=payload.delivery_enabled,
+            pickup_enabled=payload.pickup_enabled,
+            scheduled_delivery_enabled=payload.scheduled_delivery_enabled,
+            base_delivery_fee=payload.base_delivery_fee,
+            delivery_barangays=payload.delivery_barangays,
+        )
+    )
+    for name in dict.fromkeys(payload.categories):
+        db.add(VendorCategory(vendor_id=vendor.id, name=name.strip()))
+    hours = payload.hours or [
+        OperatingHourIn(day_of_week=d, open_time="08:00", close_time="20:00")
+        for d in range(7)
+    ]
+    for row in hours:
+        db.add(
+            VendorOperatingHours(
+                vendor_id=vendor.id,
+                day_of_week=row.day_of_week,
+                open_time=_parse_hhmm(row.open_time),
+                close_time=_parse_hhmm(row.close_time),
+                is_closed_all_day=row.is_closed_all_day,
+            )
+        )
+    await db.commit()
+
+    full = await _get_vendor(user, db)
+    return _vendor_payload(full, owner_name=user.full_name, owner_email=user.email)
+
 
 @router.get("")
 async def get_me(user: User = Depends(require_vendor), db: AsyncSession = Depends(get_db)):

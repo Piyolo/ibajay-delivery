@@ -8,6 +8,14 @@ class RegisterStart(BaseModel):
     full_name: str
     mobile_number: str
     email: EmailStr
+    role: str = "customer"  # "customer" | "vendor"
+
+    @field_validator("role")
+    @classmethod
+    def valid_role(cls, v: str) -> str:
+        if v not in ("customer", "vendor"):
+            raise ValueError("role must be 'customer' or 'vendor'")
+        return v
 
 
 class VerifyOtp(BaseModel):

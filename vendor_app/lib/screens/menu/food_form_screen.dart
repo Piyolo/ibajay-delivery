@@ -97,8 +97,9 @@ class _FoodFormScreenState extends State<FoodFormScreen> {
       );
       menu.updateItem(updated);
     } else {
+      // The server assigns the real id; addItem swaps it in on success.
       final newItem = FoodItem(
-        id: menu.nextId(),
+        id: 'temp_${DateTime.now().microsecondsSinceEpoch}',
         name: _name.text.trim(),
         description: _description.text.trim(),
         price: price,

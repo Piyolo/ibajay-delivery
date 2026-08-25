@@ -9,6 +9,15 @@ class VendorApiService {
 
   // ---- Store ----
 
+  /// Creates the store for a freshly-registered vendor (POST /vendor/me).
+  Future<Map<String, dynamic>> createStore(Map<String, dynamic> body) async {
+    try {
+      return await _client.post('/vendor/me', body: body) as Map<String, dynamic>;
+    } on ApiException catch (e) {
+      throw StoreApiException(e.message, statusCode: e.statusCode);
+    }
+  }
+
   Future<Map<String, dynamic>> getStore() async {
     try {
       return await _client.get('/vendor/me') as Map<String, dynamic>;

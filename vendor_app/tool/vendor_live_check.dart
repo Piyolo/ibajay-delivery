@@ -27,7 +27,7 @@ Future<void> main() async {
   _check('analytics: ${(analytics['week'] as List).length}-day chart data', true);
 
   final inbox = await api.getInbox();
-  _check('order inbox: ${inbox.length} orders', inbox is List);
+  _check('order inbox: ${inbox.length} orders', true);
 
   client.dispose();
   stdout.writeln('ALL VENDOR PORTAL CHECKS PASSED');

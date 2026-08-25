@@ -2,15 +2,11 @@ import 'package:flutter/foundation.dart';
 import '../models/order.dart';
 import '../services/api_client.dart';
 import '../services/vendor_api_service.dart';
-import '../services/mock_data_service.dart';
 
 /// Live order inbox against /orders/vendor/inbox with guarded status
 /// transitions on the backend (pending → accepted → preparing → ...).
 class OrderProvider extends ChangeNotifier {
-  OrderProvider({ApiClient? apiClient})
-      : _api = VendorApiService(apiClient ?? ApiClient()) {
-    _orders.addAll(MockDataService.buildOrders());
-  }
+  OrderProvider({ApiClient? apiClient}) : _api = VendorApiService(apiClient ?? ApiClient());
 
   final VendorApiService _api;
   final List<VendorOrder> _orders = [];

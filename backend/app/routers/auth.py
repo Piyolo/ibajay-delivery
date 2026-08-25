@@ -51,7 +51,11 @@ async def register_start(payload: RegisterStart, db: AsyncSession = Depends(get_
         email=payload.email,
         otp_code=otp_code,
         purpose="registration",
-        pending_payload={"full_name": payload.full_name, "mobile_number": payload.mobile_number},
+        pending_payload={
+            "full_name": payload.full_name,
+            "mobile_number": payload.mobile_number,
+            "role": payload.role,
+        },
         expires_at=datetime.now(timezone.utc) + timedelta(minutes=settings.OTP_EXPIRE_MINUTES),
     )
     db.add(verification)
@@ -124,7 +128,7 @@ async def set_password(payload: SetPassword, db: AsyncSession = Depends(get_db))
         mobile_number=verification.pending_payload["mobile_number"],
         email=payload.email,
         password_hash=hash_password(payload.password),
-        role=UserRole.customer,
+        role=UserRole(verification.pending_payload.get("role", "customer")),
         is_email_verified=True,
     )
     db.add(user)

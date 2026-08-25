@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../../providers/vendor_provider.dart';
 import '../../theme/app_theme.dart';
 import '../onboarding/store_setup_screen.dart';
 
@@ -14,6 +16,7 @@ class _CreatePasswordScreenState extends State<CreatePasswordScreen> {
   final _password = TextEditingController();
   final _confirm = TextEditingController();
   bool _obscure = true;
+  bool _loading = false;
 
   bool get _hasMinLength => _password.text.length >= 8;
   bool get _hasUppercase => _password.text.contains(RegExp(r'[A-Z]'));
@@ -27,7 +30,7 @@ class _CreatePasswordScreenState extends State<CreatePasswordScreen> {
     return null;
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     if (_password.text != _confirm.text) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -35,7 +38,18 @@ class _CreatePasswordScreenState extends State<CreatePasswordScreen> {
       );
       return;
     }
-    // TODO: POST /auth/register to create the vendor account
+
+    setState(() => _loading = true);
+    final provider = context.read<VendorProvider>();
+    final ok = await provider.completeRegistration(_password.text);
+    if (!mounted) return;
+    setState(() => _loading = false);
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(provider.lastAuthError ?? 'Could not create the account')),
+      );
+      return;
+    }
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const StoreSetupScreen()),
       (route) => false,
@@ -47,7 +61,8 @@ class _CreatePasswordScreenState extends State<CreatePasswordScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Create Password')),
       body: SafeArea(
-        child: Padding(
+        // Scrollable so the keyboard never squeezes the form into an overflow.
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(AppSpacing.lg),
           child: Form(
             key: _formKey,
@@ -84,7 +99,20 @@ class _CreatePasswordScreenState extends State<CreatePasswordScreen> {
                 _requirement('One lowercase letter', _hasLowercase),
                 _requirement('One number', _hasNumber),
                 const SizedBox(height: 28),
-                ElevatedButton(onPressed: _submit, child: const Text('Create Account')),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _loading ? null : _submit,
+                    child: _loading
+                        ? const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child:
+                                CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
+                          )
+                        : const Text('Create Account'),
+                  ),
+                ),
               ],
             ),
           ),

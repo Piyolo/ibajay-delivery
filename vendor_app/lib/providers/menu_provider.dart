@@ -2,7 +2,6 @@ import 'package:flutter/foundation.dart';
 import '../models/food_item.dart';
 import '../services/api_client.dart';
 import '../services/vendor_api_service.dart';
-import '../services/mock_data_service.dart';
 
 /// Live menu management against /vendor/me/menu.
 ///
@@ -10,14 +9,10 @@ import '../services/mock_data_service.dart';
 /// backend. A [load] refresh pulls the authoritative list (used at login
 /// and via pull-to-refresh).
 class MenuProvider extends ChangeNotifier {
-  MenuProvider({ApiClient? apiClient})
-      : _api = VendorApiService(apiClient ?? ApiClient()) {
-    _items.addAll(MockDataService.buildMenu());
-  }
+  MenuProvider({ApiClient? apiClient}) : _api = VendorApiService(apiClient ?? ApiClient());
 
   final VendorApiService _api;
   final List<FoodItem> _items = [];
-  int _idCounter = 100;
   bool _isLoading = false;
   String? lastError;
 
@@ -71,8 +66,6 @@ class MenuProvider extends ChangeNotifier {
     }
     notifyListeners();
   }
-
-  String nextId() => 'f${_idCounter++}';
 
   Future<void> updateItem(FoodItem updated) async {
     final index = _items.indexWhere((f) => f.id == updated.id);

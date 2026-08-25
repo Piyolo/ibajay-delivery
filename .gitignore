@@ -36,3 +36,4 @@ Thumbs.db
 
 # --- Stray archives ---
 *.zip
+backend/_test_*.py

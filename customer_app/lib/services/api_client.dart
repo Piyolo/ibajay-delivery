@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
@@ -32,23 +34,39 @@ class ApiClient {
   Uri _uri(String path, [Map<String, String>? query]) =>
       Uri.parse('$baseUrl/api/v1$path').replace(queryParameters: query);
 
+  /// Sends a request, converting transport-level failures (timeouts, no
+  /// route, no internet) into [ApiException] so callers always receive a
+  /// typed error and the UI can show a message instead of hanging.
+  Future<http.Response> _send(Future<http.Response> future) async {
+    try {
+      return await future.timeout(timeout);
+    } on TimeoutException {
+      throw ApiException(
+        'Could not reach the server. Check your internet connection and try again.',
+      );
+    } on SocketException {
+      throw ApiException(
+        'No network connection. Please check your internet and try again.',
+      );
+    }
+  }
+
   Future<dynamic> get(String path, [Map<String, String>? query]) async {
-    final response =
-        await _client.get(_uri(path, query), headers: _headers()).timeout(timeout);
+    final response = await _send(_client.get(_uri(path, query), headers: _headers()));
     return _handle(response);
   }
 
   Future<dynamic> post(String path, {Object? body}) async {
-    final response = await _client
-        .post(_uri(path), headers: _headers(), body: jsonEncode(body ?? {}))
-        .timeout(timeout);
+    final response = await _send(
+      _client.post(_uri(path), headers: _headers(), body: jsonEncode(body ?? {})),
+    );
     return _handle(response);
   }
 
   Future<dynamic> patch(String path, {Object? body}) async {
-    final response = await _client
-        .patch(_uri(path), headers: _headers(), body: jsonEncode(body ?? {}))
-        .timeout(timeout);
+    final response = await _send(
+      _client.patch(_uri(path), headers: _headers(), body: jsonEncode(body ?? {})),
+    );
     return _handle(response);
   }
 

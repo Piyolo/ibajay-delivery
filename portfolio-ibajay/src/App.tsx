@@ -1,7 +1,8 @@
-import { useEffect } from 'react'
+import { Suspense, lazy, useEffect } from 'react'
 import Lenis from 'lenis'
 import { motion, useScroll, useSpring } from 'framer-motion'
-import SceneCanvas from './three/SceneCanvas'
+
+const SceneCanvas = lazy(() => import('./three/SceneCanvas'))
 import Navbar from './components/Navbar'
 import Hero from './components/Hero'
 import Marquee from './components/Marquee'
@@ -119,7 +120,9 @@ export default function App() {
   return (
     <div className="relative min-h-screen overflow-x-clip">
       {/* fixed 3D universe behind everything */}
-      <SceneCanvas />
+      <Suspense fallback={null}>
+        <SceneCanvas />
+      </Suspense>
 
       {/* film grain */}
       <div className="noise-overlay" aria-hidden="true" />

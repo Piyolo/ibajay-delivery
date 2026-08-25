@@ -6,6 +6,27 @@ import { scrollState } from '../lib/scroll'
 
 const PAGE_DEPTH = 46
 
+/* ---- quality tiering: phones / weak devices get a much lighter scene ---- */
+
+const LOW_POWER = (() => {
+  if (typeof window === 'undefined') return false
+  const nav = navigator as Navigator & { deviceMemory?: number }
+  const coarse = window.matchMedia('(pointer: coarse)').matches
+  const small = window.matchMedia('(max-width: 820px)').matches
+  const fewCores = (nav.hardwareConcurrency ?? 8) <= 4
+  const littleMem = (nav.deviceMemory ?? 8) <= 4
+  return (coarse && small) || fewCores || littleMem
+})()
+
+const Q = {
+  shapes: LOW_POWER ? 11 : 22,
+  particles: LOW_POWER ? 550 : 1300,
+  sparkles: LOW_POWER ? 30 : 85,
+  dprMax: LOW_POWER ? 1 : 1.5,
+  antialias: !LOW_POWER,
+  blobSegments: LOW_POWER ? 20 : 40,
+}
+
 function hash(n: number) {
   const x = Math.sin(n * 127.1) * 43758.5453
   return x - Math.floor(x)
@@ -78,7 +99,7 @@ function Shape({ def }: { def: ShapeDef }) {
     const m = mesh.current
     if (!m || !mat.current) return
     m.rotation.x += delta * def.speed
-    m.rotation.y += delta * def.speed * 1.4 + Math.abs(scrollState.velocity) * 0.02
+    m.rotation.y += delta * def.speed * 1.4
 
     const dist = Math.abs(m.position.y - state.camera.position.y)
     const target = THREE.MathUtils.clamp(1 - (dist - 7) / 10, 0, 1)
@@ -86,16 +107,20 @@ function Shape({ def }: { def: ShapeDef }) {
     mat.current.opacity = fade.current * (def.wireframe ? 0.5 : 0.85)
   })
 
-  const geometry =
-    def.kind === 'knot' ? (
-      <torusKnotGeometry args={[0.8, 0.26, 110, 16]} />
-    ) : def.kind === 'ico' ? (
-      <icosahedronGeometry args={[1, 0]} />
-    ) : def.kind === 'torus' ? (
-      <torusGeometry args={[0.9, 0.28, 18, 44]} />
-    ) : (
-      <octahedronGeometry args={[1, 0]} />
+  let geometry: JSX.Element
+  if (def.kind === 'knot') {
+    geometry = (
+      <torusKnotGeometry args={LOW_POWER ? [0.8, 0.24, 56, 10] : [0.8, 0.26, 110, 16]} />
     )
+  } else if (def.kind === 'ico') {
+    geometry = <icosahedronGeometry args={[1, 0]} />
+  } else if (def.kind === 'torus') {
+    geometry = (
+      <torusGeometry args={LOW_POWER ? [0.9, 0.26, 12, 28] : [0.9, 0.28, 18, 44]} />
+    )
+  } else {
+    geometry = <octahedronGeometry args={[1, 0]} />
+  }
 
   return (
     <Float speed={def.speed * 3} rotationIntensity={0.6} floatIntensity={1.4}>
@@ -144,14 +169,14 @@ function Blob({
 
   return (
     <mesh ref={mesh} position={position} scale={scale}>
-      <sphereGeometry args={[1, 48, 48]} />
+      <sphereGeometry args={[1, Q.blobSegments, Q.blobSegments]} />
       <MeshDistortMaterial
         ref={mat}
         color={color}
         emissive={color}
         emissiveIntensity={0.25}
-        distort={0.55}
-        speed={1.6}
+        distort={LOW_POWER ? 0.4 : 0.55}
+        speed={1.2}
         roughness={0.15}
         metalness={0.1}
         transparent
@@ -164,7 +189,7 @@ function Blob({
 
 function Particles() {
   const points = useRef<THREE.Points>(null)
-  const count = 1400
+  const count = Q.particles
 
   const positions = useMemo(() => {
     const arr = new Float32Array(count * 3)
@@ -176,7 +201,7 @@ function Particles() {
     return arr
   }, [])
 
-  useFrame((state, delta) => {
+  useFrame((_, delta) => {
     if (!points.current) return
     points.current.rotation.z += delta * 0.012
   })
@@ -219,26 +244,32 @@ function GlowLights() {
       <directionalLight position={[6, 8, 6]} intensity={0.7} />
       <pointLight ref={ember} position={[5, 4, 2]} intensity={38} distance={22} color="#FF6B33" />
       <pointLight ref={moss} position={[-5, -5, 2]} intensity={30} distance={24} color="#2AA184" />
-      <pointLight position={[0, 0, 6]} intensity={10} distance={30} color="#FFB845" />
+      {!LOW_POWER && (
+        <pointLight position={[0, 0, 6]} intensity={10} distance={30} color="#FFB845" />
+      )}
     </>
   )
 }
 
 export default function SceneCanvas() {
-  const shapes = useShapeField(22)
+  const shapes = useShapeField(Q.shapes)
 
   return (
     <div className="fixed inset-0 z-0" aria-hidden="true">
       <Canvas
-        dpr={[1, 1.75]}
+        dpr={[1, Q.dprMax]}
         camera={{ position: [0, 4, 9], fov: 58 }}
-        gl={{ antialias: true, alpha: true, powerPreference: 'high-performance' }}
+        gl={{
+          antialias: Q.antialias,
+          alpha: true,
+          powerPreference: 'high-performance',
+        }}
       >
         <ScrollRig />
         <GlowLights />
         <Particles />
         <Sparkles
-          count={90}
+          count={Q.sparkles}
           scale={[16, PAGE_DEPTH + 10, 8]}
           position={[0, -PAGE_DEPTH / 2, 0]}
           size={2.2}

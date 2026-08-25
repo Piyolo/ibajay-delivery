@@ -3,9 +3,11 @@ import type { ReactNode } from 'react'
 export default function PhoneFrame({
   children,
   glow = 'ember',
+  className,
 }: {
   children: ReactNode
   glow?: 'ember' | 'moss'
+  className?: string
 }) {
   return (
     <div className="relative">
@@ -17,7 +19,7 @@ export default function PhoneFrame({
         }`}
       />
       <div
-        className={`relative w-[270px] sm:w-[290px] aspect-[9/19] rounded-[2.8rem] border border-white/15 bg-ink-soft shadow-phone overflow-hidden ring-1 ${
+        className={`relative ${className ?? 'w-[270px] sm:w-[290px]'} aspect-[9/19] rounded-[2.8rem] border border-white/15 bg-ink-soft shadow-phone overflow-hidden ring-1 ${
           glow === 'ember' ? 'ring-ember/25' : 'ring-moss-bright/25'
         }`}
       >

@@ -1,0 +1,48 @@
+name: ibajay_eats_vendor
+description: Vendor app for Ibajay Eats — manage your store, menu, orders and deliveries.
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+
+  # State management
+  provider: ^6.1.2
+
+  # Networking (wired up once the FastAPI backend is connected)
+  http: ^1.2.1
+  web_socket_channel: ^2.4.0
+
+  # Formatting / utils
+  intl: ^0.19.0
+  fl_chart: ^0.68.0
+
+  # Media & maps (kept ready for real integration; UI works with placeholders for now)
+  image_picker: ^1.1.2
+  google_maps_flutter: ^2.6.1
+
+  # Persistent storage for picked logo/banner images
+  path_provider: ^2.1.4
+
+  # Local persistence for the auth session token
+  shared_preferences: ^2.2.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter_launcher_icons:
+  image_path: "assets/images/ibajay_eats_logo.png"
+  android: "ic_launcher"
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/

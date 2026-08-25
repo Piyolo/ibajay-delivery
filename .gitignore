@@ -1,0 +1,38 @@
+# --- Python (backend) ---
+backend/venv/
+backend/.venv/
+__pycache__/
+*.pyc
+backend/.env
+
+# --- Flutter (customer_app, vendor_app) ---
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+*.iml
+.idea/
+*.ipr
+*.iws
+# Android
+**/android/.gradle/
+**/android/local.properties
+**/android/key.properties
+**/android/app/.cxx/
+# iOS (if ever added)
+**/ios/Pods/
+
+# --- Node (admin_dashboard) ---
+node_modules/
+dist/
+.env.local
+.env.*.local
+
+# --- OS / misc ---
+.DS_Store
+Thumbs.db
+*.log
+
+# --- Stray archives ---
+*.zip

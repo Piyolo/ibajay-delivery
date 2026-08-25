@@ -1,0 +1,49 @@
+{
+  "v1": [
+    {
+      "id": "r1",
+      "customerName": "Maria S.",
+      "stars": 5,
+      "comment": "Sobrang sarap and the adobo tastes just like home. Fast delivery too!",
+      "daysAgo": 2,
+      "vendorResponse": "Thank you so much, Maria! See you again soon."
+    },
+    {
+      "id": "r2",
+      "customerName": "Jerome T.",
+      "stars": 4,
+      "comment": "Good portion size, arrived a bit later than the estimate.",
+      "daysAgo": 6,
+      "vendorResponse": null
+    },
+    {
+      "id": "r3",
+      "customerName": "Anna L.",
+      "stars": 5,
+      "comment": "Best halo-halo in town!",
+      "daysAgo": 10,
+      "vendorResponse": null
+    }
+  ],
+  "v2": [
+    {
+      "id": "r4",
+      "customerName": "Ken D.",
+      "stars": 4,
+      "comment": "Solid burger, fries could be crispier.",
+      "daysAgo": 3,
+      "vendorResponse": null
+    }
+  ],
+  "v3": [
+    {
+      "id": "r5",
+      "customerName": "Liza P.",
+      "stars": 5,
+      "comment": "Their ensaymada is unbeatable, always fresh.",
+      "daysAgo": 1,
+      "vendorResponse": "Salamat Liza! We bake fresh every morning."
+    }
+  ],
+  "v4": []
+}

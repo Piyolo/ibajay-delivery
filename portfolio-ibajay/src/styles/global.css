@@ -2,39 +2,116 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Global styles for the modern portfolio */
 :root {
-  --bg: #0a0a0f;
-  --bg-secondary: #12121a;
-  --fg: #f0f0f5;
-  --muted: #6b6b80;
-  --accent: #E85D2A;
-  --accent-teal: #1F6F5C;
-  --accent-gold: #FFB845;
-  --card: #1a1a24;
+  color-scheme: dark;
 }
 
-/* Custom scrollbar */
+html {
+  scroll-behavior: auto;
+}
+
+body {
+  @apply bg-ink text-cream font-body antialiased overflow-x-hidden;
+  background-image:
+    radial-gradient(ellipse 60% 40% at 15% 0%, rgba(232, 93, 42, 0.09), transparent),
+    radial-gradient(ellipse 50% 35% at 85% 20%, rgba(31, 111, 92, 0.1), transparent),
+    radial-gradient(ellipse 55% 45% at 50% 100%, rgba(232, 93, 42, 0.06), transparent);
+  background-attachment: fixed;
+}
+
+::selection {
+  background: rgba(232, 93, 42, 0.85);
+  color: #fff;
+}
+
 ::-webkit-scrollbar {
-  width: 8px;
+  width: 9px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--bg-secondary);
+  background: #0c0a09;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--accent);
-  border-radius: 4px;
+  background: linear-gradient(180deg, #e85d2a, #c44a1f);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #f07a4e;
 }
 
-/* Lenis smooth scroll container */
-#lenis {
-  height: 100%;
+/* ---------- reusable pieces ---------- */
+
+.text-gradient {
+  @apply bg-clip-text text-transparent;
+  background-image: linear-gradient(100deg, #ffb845 0%, #e85d2a 45%, #f07a4e 80%);
 }
 
-/* Reduced motion */
+.text-gradient-moss {
+  @apply bg-clip-text text-transparent;
+  background-image: linear-gradient(100deg, #2aa184 0%, #1f6f5c 60%, #7fd6bd 100%);
+}
+
+.glass {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.shimmer-text {
+  background: linear-gradient(
+    110deg,
+    #faf7f4 30%,
+    #ffb845 46%,
+    #e85d2a 50%,
+    #faf7f4 64%
+  );
+  background-size: 200% auto;
+  @apply bg-clip-text text-transparent;
+  animation: shimmer 5s linear infinite;
+}
+
+.noise-overlay {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  opacity: 0.05;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.hairline {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* section label chip */
+.section-chip {
+  @apply inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.22em];
+  border: 1px solid rgba(232, 93, 42, 0.35);
+  color: #f07a4e;
+  background: rgba(232, 93, 42, 0.08);
+}
+.section-chip--moss {
+  border-color: rgba(42, 161, 132, 0.4);
+  color: #7fd6bd;
+  background: rgba(31, 111, 92, 0.12);
+}
+
+/* Lenis */
+html.lenis,
+html.lenis body {
+  height: auto;
+}
+.lenis.lenis-smooth {
+  scroll-behavior: auto !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  * {
-    transition: none !important;
-    animation: none !important;
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

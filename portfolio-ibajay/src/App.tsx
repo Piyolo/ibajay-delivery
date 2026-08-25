@@ -1,269 +1,190 @@
-import React, { useRef, useEffect } from 'react'
-import { Canvas } from '@react-three/fiber'
-import { OrbitControls } from '@react-three/drei'
+import { useEffect } from 'react'
 import Lenis from 'lenis'
-import { motion } from 'framer-motion'
-import './styles/global.css'
+import { motion, useScroll, useSpring } from 'framer-motion'
+import SceneCanvas from './three/SceneCanvas'
+import Navbar from './components/Navbar'
+import Hero from './components/Hero'
+import Marquee from './components/Marquee'
+import Stats from './components/Stats'
+import ShowcaseSection from './components/ShowcaseSection'
+import HowItWorks from './components/HowItWorks'
+import BentoGrid from './components/BentoGrid'
+import TechStack from './components/TechStack'
+import CTA from './components/CTA'
+import Footer from './components/Footer'
+import {
+  CustomerHome,
+  FoodDetail,
+  OrderTracking,
+  ChatPreview,
+  VendorDashboard,
+  VendorMenu,
+  VendorAnalytics,
+} from './screens'
+import { scrollState } from './lib/scroll'
 
-function SmoothScroll() {
-  const lenis = useRef(Lenis)
+const CUSTOMER_STEPS = [
+  {
+    title: 'Discover local stores',
+    body: 'Browse verified carinderias and food stalls near you — filter by category, check ratings, opening hours, and delivery fees before you even get hungry.',
+    screen: <CustomerHome />,
+  },
+  {
+    title: 'Build your order',
+    body: 'Tap into any dish for photos, descriptions, and extras like extra rice or sauce. Prices update live as you customize — no checkout surprises.',
+    screen: <FoodDetail />,
+  },
+  {
+    title: 'Track it home',
+    body: 'Watch your order move through seven live statuses with a real-time ETA. You will know exactly when the rider turns down your street.',
+    screen: <OrderTracking />,
+  },
+  {
+    title: 'Talk to your vendor',
+    body: 'Need to change something? Chat directly with the store while your food cooks — instant messages over WebSockets, no phone calls needed.',
+    screen: <ChatPreview />,
+  },
+]
 
+const VENDOR_STEPS = [
+  {
+    title: 'Run everything from one dashboard',
+    body: 'Today\'s orders, revenue, and store status on a single screen. Flip your store open or closed in one tap.',
+    screen: <VendorDashboard />,
+  },
+  {
+    title: 'Own your menu',
+    body: 'Add dishes, set prices, group items into categories, and flip availability when the batch runs out — customers see changes instantly.',
+    screen: <VendorMenu />,
+  },
+  {
+    title: 'Know your numbers',
+    body: 'Revenue trends, top sellers, monthly order volume, and store ratings — simple analytics that tell you what to cook more of tomorrow.',
+    screen: <VendorAnalytics />,
+  },
+]
+
+export default function App() {
   useEffect(() => {
-    const lenisRef = new Lenis({
-      duration: 1.2,
-      easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
-      orientation: 'vertical',
-      loop: false,
-    })
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
-    lenis.current = lenisRef
-
-    function raf(time: number) {
-      lenisRef.update(time)
-      requestAnimationFrame(raf)
+    const computeProgress = () => {
+      const max = document.documentElement.scrollHeight - window.innerHeight
+      scrollState.progress = max > 0 ? window.scrollY / max : 0
     }
 
-    requestAnimationFrame(raf)
+    let cleanupLenis: (() => void) | undefined
+    if (!reduceMotion) {
+      const lenis = new Lenis({ duration: 1.15, smoothWheel: true })
+      lenis.on('scroll', (e: { progress?: number; velocity?: number }) => {
+        scrollState.progress = e.progress ?? scrollState.progress
+        scrollState.velocity = e.velocity ?? 0
+      })
+      let raf = 0
+      const loop = (time: number) => {
+        lenis.raf(time)
+        raf = requestAnimationFrame(loop)
+      }
+      raf = requestAnimationFrame(loop)
+
+      // smooth anchor scrolling through lenis
+      const onClick = (ev: MouseEvent) => {
+        const anchor = (ev.target as HTMLElement).closest?.('a[href^="#"]') as HTMLAnchorElement | null
+        if (!anchor) return
+        const id = anchor.getAttribute('href')!
+        if (id.length <= 1) return
+        const el = document.querySelector(id)
+        if (!el) return
+        ev.preventDefault()
+        lenis.scrollTo(el as HTMLElement, { offset: 0, duration: 1.4 })
+      }
+      document.addEventListener('click', onClick)
+
+      cleanupLenis = () => {
+        cancelAnimationFrame(raf)
+        document.removeEventListener('click', onClick)
+        lenis.destroy()
+      }
+    } else {
+      window.addEventListener('scroll', computeProgress, { passive: true })
+    }
+    computeProgress()
 
     return () => {
-      lenis.current = undefined
+      cleanupLenis?.()
+      window.removeEventListener('scroll', computeProgress)
     }
   }, [])
 
-  return null
-}
-
-export default function App() {
   return (
-    <div className="min-h-screen bg-black text-white overflow-x-hidden">
-      <SmoothScroll />
+    <div className="relative min-h-screen overflow-x-clip">
+      {/* fixed 3D universe behind everything */}
+      <SceneCanvas />
 
-      <Canvas camera={{ position: [0, 0, 10] }}>
-        <ambientLight intensity={0.5} />
-        <directionalLight position={[5, 5, 5]} intensity={1} />
-        <OrbitControls enableZoom={false} enablePan={false} />
+      {/* film grain */}
+      <div className="noise-overlay" aria-hidden="true" />
 
-        <group rotation={[-0.3, 0, 0]}>
-          <boxGeometry args={[4, 4, 4]} />
-          <meshStandardMaterial color="#E85D2A" opacity={0.6} transparent />
-        </group>
+      <Navbar />
 
-        <group position={[-6, 0, 0]} rotation={[-0.3, 0, 0]}>
-          <boxGeometry args={[4, 4, 4]} />
-          <meshStandardMaterial color="#1F6F5C" opacity={0.6} transparent />
-        </group>
+      <main className="relative">
+        <Hero />
+        <Marquee />
+        <Stats />
 
-        <group position={[6, 0, 0]} rotation={[-0.3, 0, 0]}>
-          <boxGeometry args={[4, 4, 4]} />
-          <meshStandardMaterial color="#FFB845" opacity={0.6} transparent />
-        </group>
-      </Canvas>
+        <ShowcaseSection
+          id="customer"
+          chip="Customer App"
+          chipClass=""
+          heading={
+            <>
+              Your whole town,
+              <br />
+              one tap away.
+            </>
+          }
+          accent="ember"
+          steps={CUSTOMER_STEPS}
+        />
 
-      <nav className="fixed top-0 left-0 right-0 z-50 py-6 px-6 md:px-12">
-        <div className="max-w-7xl mx-auto flex justify-between items-center">
-          <h1 className="text-2xl md:text-3xl font-bold tracking-wider">
-            <span className="text-emerald-400">IB</span>JAY
-          </h1>
-          <ul className="flex gap-8 md:gap-12">
-            <li>
-              <a
-                href="#projects"
-                className="relative text-white hover:text-emerald-400 transition-colors"
-              >
-                Projects
-              </a>
-            </li>
-            <li>
-              <a
-                href="#about"
-                className="relative text-white hover:text-emerald-400 transition-colors"
-              >
-                About
-              </a>
-            </li>
-            <li>
-              <a
-                href="#contact"
-                className="relative text-white hover:text-emerald-400 transition-colors"
-              >
-                Contact
-              </a>
-            </li>
-          </ul>
-        </div>
-      </nav>
+        <ShowcaseSection
+          id="vendor"
+          chip="Vendor App"
+          chipClass="section-chip--moss"
+          heading={
+            <>
+              The POS your
+              <br />
+              carinderia deserves.
+            </>
+          }
+          accent="moss"
+          steps={VENDOR_STEPS}
+        />
 
-      <main className="relative z-10 min-h-screen">
-        <section id="hero" className="min-h-screen flex items-center justify-center">
-          <div className="text-center">
-            <h2 className="motion-reduce:transition-none text-4xl md:text-5xl font-bold mb-4">
-              Modern Flutter & Backend Portfolio
-            </h2>
-            <p className="motion-reduce:transition-none text-lg md:text-xl text-gray-300 max-w-2xl mx-auto mb-12">
-              A showcase of IbajayDelivery — a complete local food delivery platform built with
-              Flutter, FastAPI, and React, featuring customer apps, vendor panels, and admin dashboards.
-            </p>
-            <div className="motion-reduce:grid-cols-1 grid-cols-2 gap-4 max-w-md mx-auto">
-              <a
-                href="https://github.com/PioloMangilog/ibajaydelivery"
-                className="group relative inline-block px-6 py-3 text-lg font-medium text-white bg-emerald-600 rounded-full hover:bg-emerald-500 transition-colors"
-              >
-                GitHub Repo
-              </a>
-              <a
-                href="#contact"
-                className="group relative inline-block px-6 py-3 text-lg font-medium text-white bg-transparent border-2 border-white rounded-full hover:bg-white hover-text-black transition-colors"
-              >
-                Get in Touch
-              </a>
-            </div>
-          </div>
-        </section>
-
-        <section id="projects" className="py-24 md:py-32">
-          <div className="max-w-7xl mx-auto px-6">
-            <h2 className="text-3xl md:text-4xl font-bold mb-12 text-center">
-              Featured Projects
-            </h2>
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {/* Customer App Card */}
-              <motion.div
-                className="group rounded-2xl overflow-hidden bg-gray-800 hover:bg-gray-700 transition-colors duration-300"
-                whileHover={{ scale: 1.02, y: -10 }}
-              >
-                <div className="p-6">
-                  <h3 className="text-xl font-medium mb-2">Ibajay Eats Customer</h3>
-                  <p className="text-sm text-gray-300">
-                    Flutter mobile app — full auth, search, cart, checkout, live order tracking,
-                    chat, favorites, and settings with 7-step order status.
-                  </p>
-                </div>
-              </motion.div>
-
-              {/* Vendor App Card */}
-              <motion.div
-                className="group rounded-2xl overflow-hidden bg-gray-800 hover:bg-gray-700 transition-colors duration-300"
-                whileHover={{ scale: 1.02, y: -10 }}
-              >
-                <div className="p-6">
-                  <h3 className="text-xl font-medium mb-2">Ibajay Eats Vendor</h3>
-                  <p className="text-sm text-gray-300">
-                    Flutter vendor app — store management, menu CRUD, orders dashboard, delivery
-                    tracking, analytics with barchart, and chat interface.
-                  </p>
-                </div>
-              </motion.div>
-
-              {/* Admin Dashboard Card */}
-              <motion.div
-                className="group rounded-2xl overflow-hidden bg-gray-800 hover:bg-gray-700 transition-colors duration-300"
-                whileHover={{ scale: 1.02, y: -10 }}
-              >
-                <div className="p-6">
-                  <h3 className="text-xl font-medium mb-2">Admin Dashboard</h3>
-                  <p className="text-sm text-gray-300">
-                    React admin console — 3 roles (Developer/Manager/Staff), KPIs, vendor/order
-                    analytics, paginated tables, and audit logs.
-                  </p>
-                </div>
-              </motion.div>
-            </div>
-          </div>
-        </section>
-
-        <section id="about" className="py-24 md:py-32 bg-gray-900">
-          <div className="max-w-7xl mx-auto px-6">
-            <div className="grid md:grid-cols-2 gap-12 items-center">
-              <div>
-                <h2 className="text-3xl md:text-4xl font-bold mb-6">
-                  About the Platform
-                </h2>
-                <p className="text-lg text-gray-300 leading-relaxed">
-                  Ibajay Eats is a complete local food delivery platform connecting customers
-                  with local stores. The project spans three interfaces:
-                </p>
-                <ul className="list-disc list-inside space-y-4 text-gray-300">
-                  <li>
-                    <strong>Customer App:</strong> Browse vendors, place orders (delivery/pickup/scheduled),
-                    track live order status, manage favorites and addresses, and chat with vendors.
-                  </li>
-                  <li>
-                    <strong>Vendor App:</strong> Manage menu, view/accept orders, track deliveries,
-                    view analytics, and configure store settings.
-                  </li>
-                  <li>
-                    <strong>Admin Dashboard:</strong> Internal console with 3 roles for vendor
-                    verification, platform analytics, and user/category management.
-                  </li>
-                </ul>
-                <p className="mt-6 text-lg text-gray-300">
-                  Built with Flutter for mobile, FastAPI for the backend, and React for the
-                  admin dashboard. All components are mock-first, with clear seams for backend
-                  integration.
-                </p>
-              </div>
-              <div className="relative">
-                <div className="relative h-64 w-64 rounded-2xl overflow-hidden bg-gradient-to-br from-emerald-600 to-emerald-500">
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <svg className="w-24 h-24 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M22 11.08V12a10 10 0 1 1-5.94-9.14" />
-                      <polyline points="22 4 12 14 9 10" />
-                      <line x1="12" y1="1" x2="12" y2="3" />
-                      <line x1="12" y1="23" x2="12" y2="21" />
-                    </svg>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section id="contact" className="py-24 md:py-32 bg-black">
-          <div className="max-w-4xl mx-auto px-6">
-            <h2 className="text-3xl md:text-4xl font-bold mb-12 text-center">
-              Get in Touch
-            </h2>
-            <form className="space-y-6">
-              <div>
-                <label className="block text-sm font-medium mb-2">
-                  Name
-                </label>
-                <input
-                  type="text"
-                  placeholder="Your name"
-                  className="w-full px-4 py-3 bg-gray-800 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-2">
-                  Email
-                </label>
-                <input
-                  type="email"
-                  placeholder="your@email.com"
-                  className="w-full px-4 py-3 bg-gray-800 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-2">
-                  Message
-                </label>
-                <textarea
-                  rows={4}
-                  placeholder="How can I help?..."
-                  className="w-full px-4 py-3 bg-gray-800 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none"
-                ></textarea>
-              </div>
-              <button
-                type="submit"
-                className="w-full px-6 py-3 text-lg font-medium text-white bg-emerald-600 rounded-full hover:bg-emerald-500 transition-colors"
-              >
-                Send Message
-              </button>
-            </form>
-          </div>
-        </section>
+        <HowItWorks />
+        <BentoGrid />
+        <TechStack />
+        <CTA />
       </main>
+
+      <Footer />
+
+      {/* subtle scroll-progress bar */}
+      <ScrollProgressBar />
     </div>
   )
+}
+
+function ScrollProgressBar() {
+  return (
+    <motion.div
+      className="fixed bottom-0 left-0 right-0 z-50 h-[3px] origin-left bg-gradient-to-r from-gold via-ember to-moss-bright"
+      style={{ scaleX: useWindowScrollSpring() }}
+    />
+  )
+}
+
+function useWindowScrollSpring() {
+  const { scrollYProgress } = useScroll()
+  return useSpring(scrollYProgress, { stiffness: 90, damping: 24, restDelta: 0.001 })
 }

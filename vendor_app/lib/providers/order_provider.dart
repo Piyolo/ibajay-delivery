@@ -1,11 +1,24 @@
 import 'package:flutter/foundation.dart';
 import '../models/order.dart';
+import '../services/api_client.dart';
+import '../services/vendor_api_service.dart';
 import '../services/mock_data_service.dart';
 
+/// Live order inbox against /orders/vendor/inbox with guarded status
+/// transitions on the backend (pending → accepted → preparing → ...).
 class OrderProvider extends ChangeNotifier {
-  final List<VendorOrder> _orders = MockDataService.buildOrders();
+  OrderProvider({ApiClient? apiClient})
+      : _api = VendorApiService(apiClient ?? ApiClient()) {
+    _orders.addAll(MockDataService.buildOrders());
+  }
+
+  final VendorApiService _api;
+  final List<VendorOrder> _orders = [];
+  bool _isLoading = false;
+  String? lastError;
 
   List<VendorOrder> get all => List.unmodifiable(_orders);
+  bool get isLoading => _isLoading;
 
   List<VendorOrder> byStatus(List<OrderStatus> statuses) =>
       _orders.where((o) => statuses.contains(o.status)).toList()
@@ -38,21 +51,61 @@ class OrderProvider extends ChangeNotifier {
     }
   }
 
-  void acceptOrder(String id) => _setStatus(id, OrderStatus.accepted);
+  /// Pulls the live inbox. Falls back to the local list (mock seed / last
+  /// sync) when unreachable.
+  Future<void> load() async {
+    _isLoading = true;
+    notifyListeners();
+    try {
+      final rows = await _api.getInbox();
+      _orders
+        ..clear()
+        ..addAll(rows.map((r) => VendorOrder.fromApi(r as Map<String, dynamic>)));
+      lastError = null;
+    } on StoreApiException catch (e) {
+      lastError = e.message;
+    }
+    _isLoading = false;
+    notifyListeners();
+  }
 
-  void rejectOrder(String id) => _setStatus(id, OrderStatus.cancelled);
+  Future<void> acceptOrder(String id) => _setStatus(id, OrderStatus.accepted);
 
-  void advanceStatus(String id) {
+  Future<void> rejectOrder(String id) =>
+      _api.cancelOrder(id, 'Rejected by store').then((_) => _applyLocal(id, OrderStatus.cancelled))
+          .catchError((Object e) {
+        lastError = e is StoreApiException ? e.message : e.toString();
+        notifyListeners();
+      });
+
+  Future<void> advanceStatus(String id) async {
     final order = findById(id);
     if (order == null) return;
     final next = order.status.next;
-    if (next != null) _setStatus(id, next);
+    if (next != null) await _setStatus(id, next);
   }
 
-  void _setStatus(String id, OrderStatus status) {
+  Future<void> _setStatus(String id, OrderStatus status) async {
+    final order = findById(id);
+    if (order == null) return;
+    final previous = order.status;
+    order.status = status;
+    notifyListeners();
+    try {
+      await _api.updateOrderStatus(id, status.key);
+      lastError = null;
+    } on StoreApiException catch (e) {
+      order.status = previous;
+      lastError = e.message;
+      notifyListeners();
+    }
+  }
+
+  void _applyLocal(String id, OrderStatus status) {
     final order = findById(id);
     if (order == null) return;
     order.status = status;
+    lastError = null;
     notifyListeners();
   }
 }

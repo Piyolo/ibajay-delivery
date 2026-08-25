@@ -159,9 +159,7 @@ class OrderTrackingScreen extends StatelessWidget {
           if (order.isActive) ...[
             const SizedBox(height: 16),
             OutlinedButton(
-              onPressed: () {
-                context.read<OrderProvider>().cancelOrder(order.id, 'Cancelled by customer');
-              },
+              onPressed: () => _confirmCancel(context),
               style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger),
               child: const Text('Cancel Order'),
             ),
@@ -169,6 +167,33 @@ class OrderTrackingScreen extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _confirmCancel(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Cancel this order?'),
+        content: const Text(
+          'The store will be notified and your order will no longer be prepared. '
+          'This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Keep Order'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+            child: const Text('Cancel Order'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    if (!context.mounted) return;
+    context.read<OrderProvider>().cancelOrder(orderId, 'Cancelled by customer');
   }
 }
 

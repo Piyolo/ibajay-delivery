@@ -73,6 +73,7 @@ class VendorProfileOut(BaseModel):
     base_delivery_fee: float = 0
     fee_per_km: float = 0
     estimated_prep_minutes: int = 20
+    delivery_barangays: list[str] = []
     categories: list[str] = []
     food_items: list[FoodItemOut] = []
 

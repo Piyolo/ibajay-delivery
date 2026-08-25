@@ -57,6 +57,14 @@ class OrderOut(BaseModel):
     scheduled_for: datetime | None
     created_at: datetime
     items: list[OrderItemOut]
+    # Populated for the vendor inbox (customer-facing endpoints omit them):
+    customer_name: str | None = None
+    customer_mobile: str | None = None
+    delivery_address: str | None = None
+    delivery_latitude: float | None = None
+    delivery_longitude: float | None = None
+    special_instructions: str | None = None
+    cancellation_reason: str | None = None
 
     class Config:
         from_attributes = True

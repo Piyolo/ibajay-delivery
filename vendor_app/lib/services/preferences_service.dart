@@ -39,8 +39,9 @@ class PreferencesService {
 
   // ---- Keys ----
 
-  static const kAuthenticated = 'vendor.authenticated';
+  static const kAccessToken = 'vendor.access_token';
+  static const kRefreshToken = 'vendor.refresh_token';
+  static const kOwnerMobile = 'vendor.owner_mobile';
   static const kSetupDone = 'vendor.setup_done';
   static const kProfile = 'vendor.profile';
-  static const kAccountPassword = 'vendor.account_password';
 }

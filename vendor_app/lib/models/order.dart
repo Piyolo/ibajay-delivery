@@ -104,6 +104,7 @@ class VendorOrder {
   final double deliveryFee;
   final String paymentMethod;
   final String notes; // order-level note, e.g. "Leave at the gate, thanks!"
+  final String orderNumber;
 
   VendorOrder({
     required this.id,
@@ -120,8 +121,66 @@ class VendorOrder {
     this.deliveryFee = 0,
     this.paymentMethod = 'Cash on Delivery',
     this.notes = '',
+    this.orderNumber = '',
   });
 
   double get itemsTotal => items.fold(0, (sum, i) => sum + i.subtotal);
   double get grandTotal => itemsTotal + deliveryFee;
+
+  static OrderStatus _statusFromKey(String? key) =>
+      OrderStatus.values.firstWhere(
+        (s) => s.key == key,
+        orElse: () => OrderStatus.pending,
+      );
+
+  static FulfillmentType _fulfillmentFromKey(String? key) {
+    switch (key) {
+      case 'pickup':
+        return FulfillmentType.pickup;
+      case 'scheduled_delivery':
+        return FulfillmentType.scheduled;
+      default:
+        return FulfillmentType.delivery;
+    }
+  }
+
+  /// Maps the backend's OrderOut (vendor inbox shape, snake_case).
+  factory VendorOrder.fromApi(Map<String, dynamic> json) {
+    DateTime? parseDate(String? raw) =>
+        raw == null ? null : DateTime.tryParse(raw)?.toLocal();
+    return VendorOrder(
+      id: json['id'] as String,
+      orderNumber: json['order_number'] as String? ?? '',
+      customerName: json['customer_name'] as String? ?? 'Customer',
+      customerMobile: json['customer_mobile'] as String? ?? '',
+      deliveryAddress: json['delivery_address'] as String? ?? '',
+      customerLat: (json['delivery_latitude'] as num?)?.toDouble(),
+      customerLng: (json['delivery_longitude'] as num?)?.toDouble(),
+      items: [
+        for (final item in (json['items'] as List?) ?? [])
+          OrderLineItem(
+            foodName: (item as Map<String, dynamic>)['item_name'] as String? ?? '',
+            quantity: item['quantity'] as int? ?? 1,
+            price: (item['unit_price'] as num?)?.toDouble() ?? 0,
+            addons: [
+              for (final choices
+                  in ((item['selected_options'] as Map?)?.cast<String, dynamic>() ?? const {})
+                      .values)
+                ...((choices as List?)?.cast<String>() ?? const []),
+            ],
+            specialInstructions:
+                item['special_instructions'] as String? ?? '',
+          ),
+      ],
+      status: _statusFromKey(json['status'] as String?),
+      fulfillmentType: _fulfillmentFromKey(json['delivery_method'] as String?),
+      placedAt: parseDate(json['created_at'] as String?) ?? DateTime.now(),
+      scheduledFor: parseDate(json['scheduled_for'] as String?),
+      deliveryFee: (json['delivery_fee'] as num?)?.toDouble() ?? 0,
+      paymentMethod: (json['payment_method'] as String? ?? 'cash_on_delivery') == 'cash_on_pickup'
+          ? 'Cash on Pickup'
+          : 'Cash on Delivery',
+      notes: json['special_instructions'] as String? ?? '',
+    );
+  }
 }

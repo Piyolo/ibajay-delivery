@@ -163,7 +163,39 @@ async def vendor_inbox(
     stmt = stmt.order_by(Order.created_at.desc())
 
     result = await db.execute(stmt)
-    return result.scalars().unique().all()
+    orders = result.scalars().unique().all()
+
+    # Batch-resolve customer profiles for the inbox display.
+    customer_ids = {o.customer_id for o in orders}
+    customers: dict = {}
+    if customer_ids:
+        c_result = await db.execute(select(User).where(User.id.in_(customer_ids)))
+        customers = {c.id: c for c in c_result.scalars().all()}
+
+    return [
+        OrderOut(
+            id=o.id,
+            order_number=o.order_number,
+            vendor_id=o.vendor_id,
+            status=o.status,
+            delivery_method=o.delivery_method,
+            payment_method=o.payment_method,
+            subtotal=float(o.subtotal),
+            delivery_fee=float(o.delivery_fee),
+            total=float(o.total),
+            scheduled_for=o.scheduled_for,
+            created_at=o.created_at,
+            items=o.items,
+            customer_name=customers[o.customer_id].full_name if o.customer_id in customers else None,
+            customer_mobile=customers[o.customer_id].mobile_number if o.customer_id in customers else None,
+            delivery_address=o.delivery_address,
+            delivery_latitude=o.delivery_latitude,
+            delivery_longitude=o.delivery_longitude,
+            special_instructions=o.special_instructions,
+            cancellation_reason=o.cancellation_reason,
+        )
+        for o in orders
+    ]
 
 
 @router.get("/{order_id}", response_model=OrderOut)

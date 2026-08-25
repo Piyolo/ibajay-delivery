@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, time
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
@@ -66,6 +66,11 @@ class VendorDeliverySettings(Base):
     base_delivery_fee: Mapped[float] = mapped_column(Numeric(8, 2), default=0)
     fee_per_km: Mapped[float] = mapped_column(Numeric(8, 2), default=0)  # for distance-based fee calc
     estimated_prep_minutes: Mapped[int] = mapped_column(default=20)
+
+    # Municipality-scoped delivery coverage: barangays of Ibajay this store
+    # serves. Takes precedence over the radius when non-empty (the customer
+    # app matches the customer's barangay against this list).
+    delivery_barangays: Mapped[list] = mapped_column(JSONB, default=list)
 
     vendor: Mapped[Vendor] = relationship(back_populates="delivery_settings")
 

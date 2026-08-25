@@ -119,6 +119,7 @@ async def seed() -> None:
                     estimated_prep_minutes=entry["deliverySettings"].get(
                         "estimatedPrepMinutes", 20
                     ),
+                    delivery_barangays=entry["deliverySettings"].get("deliveryBarangays", []),
                 )
             )
 

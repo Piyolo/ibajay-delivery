@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
 from app.core.config import get_settings
-from app.routers import addresses, auth, chat, orders, realtime_ws, tracking, vendors
+from app.routers import addresses, auth, chat, orders, realtime_ws, tracking, vendors, vendor_portal
 
 settings = get_settings()
 
@@ -25,6 +25,7 @@ api = settings.API_V1_PREFIX
 app.include_router(auth.router, prefix=api)
 app.include_router(addresses.router, prefix=api)
 app.include_router(vendors.router, prefix=api)
+app.include_router(vendor_portal.router, prefix=api)
 app.include_router(orders.router, prefix=api)
 app.include_router(tracking.router, prefix=api)
 app.include_router(chat.router, prefix=api)

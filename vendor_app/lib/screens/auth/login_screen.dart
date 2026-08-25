@@ -15,21 +15,36 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _emailController = TextEditingController(text: 'maria@ibajayeats.test');
+  final _mobileController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _obscure = true;
+  bool _loading = false;
+  String? _error;
 
   @override
   void dispose() {
-    _emailController.dispose();
+    _mobileController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
-  void _login() {
+  Future<void> _login() async {
     if (!_formKey.currentState!.validate()) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     final vendorProvider = context.read<VendorProvider>();
-    vendorProvider.signIn(password: _passwordController.text);
+    final ok = await vendorProvider.signIn(
+      mobileNumber: _mobileController.text.trim(),
+      password: _passwordController.text,
+    );
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      _error = ok ? null : (vendorProvider.lastAuthError ?? 'Could not sign in');
+    });
+    if (!ok) return;
 
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
@@ -64,14 +79,14 @@ class _LoginScreenState extends State<LoginScreen> {
                   style: TextStyle(color: AppColors.textSecondary),
                 ),
                 const SizedBox(height: 32),
-                const Text('Email Address', style: TextStyle(fontWeight: FontWeight.w600)),
+                const Text('Mobile Number', style: TextStyle(fontWeight: FontWeight.w600)),
                 const SizedBox(height: 8),
                 TextFormField(
-                  controller: _emailController,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(hintText: 'you@example.com'),
+                  controller: _mobileController,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(hintText: '09123456789'),
                   validator: (v) =>
-                      (v == null || !v.contains('@')) ? 'Enter a valid email address' : null,
+                      (v == null || v.trim().isEmpty) ? 'Enter your mobile number' : null,
                 ),
                 const SizedBox(height: 18),
                 const Text('Password', style: TextStyle(fontWeight: FontWeight.w600)),
@@ -96,8 +111,25 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: const Text('Forgot Password?'),
                   ),
                 ),
+                if (_error != null) ...[
+                  const SizedBox(height: 12),
+                  Text(_error!,
+                      style: const TextStyle(color: AppColors.danger, fontSize: 13)),
+                ],
                 const SizedBox(height: 8),
-                ElevatedButton(onPressed: _login, child: const Text('Login')),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _loading ? null : _login,
+                    child: _loading
+                        ? const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
+                          )
+                        : const Text('Login'),
+                  ),
+                ),
                 const SizedBox(height: 20),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,

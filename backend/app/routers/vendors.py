@@ -130,6 +130,7 @@ async def get_vendor_profile(vendor_id: uuid.UUID, db: AsyncSession = Depends(ge
         base_delivery_fee=float(settings_.base_delivery_fee) if settings_ else 0,
         fee_per_km=float(settings_.fee_per_km) if settings_ else 0,
         estimated_prep_minutes=settings_.estimated_prep_minutes if settings_ else 20,
+        delivery_barangays=(settings_.delivery_barangays if settings_ else []) or [],
         categories=[c.name for c in vendor.categories],
         food_items=[
             FoodItemOut(

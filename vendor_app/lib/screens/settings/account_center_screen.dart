@@ -265,10 +265,17 @@ class AccountCenterScreen extends StatelessWidget {
                           ? () async {
                               final provider = context.read<VendorProvider>();
                               final messenger = ScaffoldMessenger.of(context);
+                              final ok = await provider.changePassword(
+                                currentPassword: currentController.text,
+                                newPassword: newController.text,
+                              );
+                              if (!context.mounted) return;
                               Navigator.of(dialogContext).pop();
-                              await provider.changePassword(newController.text);
-                              messenger.showSnackBar(
-                                  const SnackBar(content: Text('Password updated')));
+                              messenger.showSnackBar(SnackBar(
+                                content: Text(ok
+                                    ? 'Password updated'
+                                    : (provider.lastAuthError ?? 'Could not update password')),
+                              ));
                             }
                           : null,
               child: Text(verifying

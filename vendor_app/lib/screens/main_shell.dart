@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'dashboard/dashboard_screen.dart';
 import 'orders/orders_dashboard_screen.dart';
 import 'menu/menu_screen.dart';
 import 'chat/chat_list_screen.dart';
 import 'settings/store_settings_screen.dart';
+import '../providers/menu_provider.dart';
+import '../providers/order_provider.dart';
 import '../theme/app_theme.dart';
 
 class MainShell extends StatefulWidget {
@@ -17,6 +20,17 @@ class _MainShellState extends State<MainShell> {
   int _index = 0;
 
   void _goToTab(int i) => setState(() => _index = i);
+
+  @override
+  void initState() {
+    super.initState();
+    // Pull the live menu + order inbox once the shell (post-login) mounts.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<MenuProvider>().load();
+      context.read<OrderProvider>().load();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {

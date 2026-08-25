@@ -18,7 +18,7 @@ const icon = (path: ReactNode) => (
 const CARDS: Card[] = [
   {
     title: 'Live order tracking',
-    body: 'A 7-step status engine keeps customers, vendors, and riders in sync — pushed instantly over WebSockets.',
+    body: 'A 7-step status engine keeps customers and vendors in sync — pushed instantly over WebSockets. Live location sharing kicks in only while an order is out for delivery.',
     span: 'md:col-span-2',
     tint: '#E85D2A',
     icon: icon(<><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 3" /></>),

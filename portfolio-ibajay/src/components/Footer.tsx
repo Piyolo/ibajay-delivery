@@ -10,8 +10,8 @@ export default function Footer() {
             </span>
           </div>
           <p className="mt-4 max-w-xs text-sm leading-relaxed text-white/45">
-            The local food delivery platform for Ibajay, Aklan — connecting every kusina
-            to every kapamilya.
+            The local food marketplace for Ibajay, Aklan — connecting local kusinas to
+            the community. Launching soon.
           </p>
         </div>
 

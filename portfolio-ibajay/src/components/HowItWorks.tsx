@@ -6,7 +6,7 @@ const STEPS = [
   { key: 'accepted', label: 'Accepted', desc: 'Vendor confirms the order', color: '#3378C9' },
   { key: 'preparing', label: 'Preparing', desc: 'Kusina fires up', color: '#8A5CF6' },
   { key: 'ready', label: 'Ready', desc: 'Food is packed and good to go', color: '#1F6F5C' },
-  { key: 'out_for_delivery', label: 'Out for delivery', desc: 'Rider is on the road', color: '#E85D2A' },
+  { key: 'out_for_delivery', label: 'Out for delivery', desc: "The vendor's delivery person is on the road", color: '#E85D2A' },
   { key: 'delivered', label: 'Delivered', desc: 'Handed over, still warm', color: '#2E9E5B' },
   { key: 'completed', label: 'Completed', desc: 'Rate, review, repeat', color: '#2E9E5B' },
 ]
@@ -43,7 +43,8 @@ export default function HowItWorks() {
           </h2>
           <p className="mx-auto mt-4 max-w-xl text-white/55">
             Every order moves through seven live statuses — synced in real time between
-            customer, vendor, and rider over WebSockets.
+            customer and vendor over WebSockets. Delivery is handled by the vendor
+            themselves, or you pick the order up.
           </p>
         </motion.div>
 

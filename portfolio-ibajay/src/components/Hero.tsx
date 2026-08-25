@@ -43,7 +43,7 @@ export default function Hero() {
               <span className="relative inline-flex h-2 w-2 rounded-full bg-ember" />
             </span>
             <span className="text-xs font-medium tracking-wide text-white/80">
-              Now serving Ibajay, Aklan
+              Launching soon in Ibajay, Aklan — join the waitlist
             </span>
           </motion.div>
 
@@ -60,9 +60,9 @@ export default function Hero() {
             variants={rise}
             className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-white/60 sm:text-lg lg:mx-0"
           >
-            One platform connecting every carinderia, burger joint, and dessert stand in
-            town. Order from local stores, track your food live, and chat with vendors —
-            while they run their whole business from one app.
+            One marketplace for the food you already love — carinderias, burger joints,
+            dessert stands. Order from local stores, track your order live, and chat with
+            vendors while they run their business from one app.
           </motion.p>
 
           <motion.div variants={rise} className="mt-9 flex flex-wrap items-center justify-center gap-4 lg:justify-start">

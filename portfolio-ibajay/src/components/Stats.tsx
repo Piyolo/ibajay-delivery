@@ -9,10 +9,10 @@ type Stat = {
 }
 
 const STATS: Stat[] = [
-  { value: 2, suffix: '', label: 'Flagship mobile apps', color: '#F07A4E' },
-  { value: 7, suffix: '-step', label: 'Live order tracking', color: '#FFB845' },
-  { value: 6, suffix: '+', label: 'Barangays covered at launch', color: '#2AA184' },
-  { value: 100, suffix: '%', label: 'Local stores, zero commission drama', color: '#F07A4E' },
+  { value: 2, suffix: '', label: 'Mobile apps — customer & vendor', color: '#F07A4E' },
+  { value: 7, suffix: '-step', label: 'Live order status tracking', color: '#FFB845' },
+  { value: 2, suffix: '', label: 'Ways to get your food — vendor delivery or pickup', color: '#2AA184' },
+  { value: 1, suffix: '', label: 'Town we\'re built for: Ibajay, Aklan', color: '#F07A4E' },
 ]
 
 function Counter({ stat }: { stat: Stat }) {

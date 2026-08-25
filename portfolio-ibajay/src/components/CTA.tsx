@@ -30,7 +30,7 @@ export default function CTA() {
         >
           Gutom ka na ba?
           <br />
-          <span className="shimmer-text">Kain na.</span>
+          <span className="shimmer-text">Hintay lang.</span>
         </motion.h2>
 
         <motion.div
@@ -41,16 +41,22 @@ export default function CTA() {
           className="mt-10 flex flex-wrap items-center justify-center gap-4"
         >
           <a
-            href="#customer"
+            href="#waitlist"
             className="rounded-full bg-gradient-to-r from-ember to-ember-dark px-9 py-4 font-semibold text-white transition-all duration-300 hover:-translate-y-0.5 hover:shadow-glow"
           >
-            I'm a customer
+            Join the waitlist
           </a>
           <a
-            href="#vendor"
+            href="#waitlist"
+            onClick={(e) => {
+              // deep-link into the vendor tab of the waitlist form
+              e.preventDefault()
+              document.querySelector<HTMLButtonElement>('[data-waitlist-vendor]')?.click()
+              document.querySelector('#waitlist')?.scrollIntoView({ behavior: 'smooth' })
+            }}
             className="rounded-full border border-moss-bright/40 bg-moss/15 px-9 py-4 font-semibold text-emerald-100 backdrop-blur transition-all duration-300 hover:-translate-y-0.5 hover:bg-moss/30"
           >
-            I'm a vendor
+            Become a vendor
           </a>
         </motion.div>
 
@@ -61,7 +67,7 @@ export default function CTA() {
           transition={{ duration: 1, delay: 0.3 }}
           className="mt-12 inline-block rounded-full glass px-5 py-2 font-mono text-sm text-white/60"
         >
-          https://ibajayeats.linkpc.net
+          Launching soon in Ibajay, Aklan
         </motion.p>
       </div>
     </section>

@@ -1,8 +1,8 @@
-import { Suspense, lazy, useEffect } from 'react'
+import { useEffect } from 'react'
 import Lenis from 'lenis'
 import { motion, useScroll, useSpring } from 'framer-motion'
 
-const SceneCanvas = lazy(() => import('./three/SceneCanvas'))
+import MarketplaceMap from './components/MarketplaceMap'
 import Navbar from './components/Navbar'
 import Hero from './components/Hero'
 import Marquee from './components/Marquee'
@@ -11,6 +11,7 @@ import ShowcaseSection from './components/ShowcaseSection'
 import HowItWorks from './components/HowItWorks'
 import BentoGrid from './components/BentoGrid'
 import TechStack from './components/TechStack'
+import Waitlist from './components/Waitlist'
 import CTA from './components/CTA'
 import Footer from './components/Footer'
 import {
@@ -37,7 +38,7 @@ const CUSTOMER_STEPS = [
   },
   {
     title: 'Track it home',
-    body: 'Watch your order move through seven live statuses with a real-time ETA. You will know exactly when the rider turns down your street.',
+    body: "Watch your order move through seven live statuses with a real-time ETA. When the vendor's delivery person heads your way, you'll see it live — or get pinged when it's ready for pickup.",
     screen: <OrderTracking />,
   },
   {
@@ -119,10 +120,8 @@ export default function App() {
 
   return (
     <div className="relative min-h-screen overflow-x-clip">
-      {/* fixed 3D universe behind everything */}
-      <Suspense fallback={null}>
-        <SceneCanvas />
-      </Suspense>
+      {/* fixed illustrated marketplace behind everything */}
+      <MarketplaceMap />
 
       {/* film grain */}
       <div className="noise-overlay" aria-hidden="true" />
@@ -167,6 +166,7 @@ export default function App() {
         <HowItWorks />
         <BentoGrid />
         <TechStack />
+        <Waitlist />
         <CTA />
       </main>
 

@@ -4,7 +4,6 @@ const LINKS = [
   { label: 'Customer', href: '#customer' },
   { label: 'Vendor', href: '#vendor' },
   { label: 'How it works', href: '#how' },
-  { label: 'Tech', href: '#tech' },
 ]
 
 export default function Navbar() {
@@ -56,7 +55,7 @@ export default function Navbar() {
           href="#cta"
           className="rounded-full bg-gradient-to-r from-ember to-ember-dark px-5 py-2 text-sm font-semibold text-white transition-all duration-300 hover:shadow-glow hover:-translate-y-0.5"
         >
-          Get the App
+          Join the waitlist
         </a>
       </nav>
     </header>

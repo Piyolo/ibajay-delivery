@@ -15,10 +15,19 @@ import '../services/vendor_api_service.dart';
 /// Everything persists server-side; a local cache keeps the last known
 /// state for offline viewing.
 class VendorProvider extends ChangeNotifier {
-  VendorProvider({ApiClient? apiClient})
-      : _client = apiClient ?? ApiClient(),
-        api = VendorApiService(apiClient ?? ApiClient()),
-        _auth = AuthApiService(apiClient ?? ApiClient()) {
+  /// All services must share ONE ApiClient — the auth token is set on the
+  /// client instance, so separate instances would send unauthenticated
+  /// requests.
+  factory VendorProvider({ApiClient? apiClient}) {
+    final client = apiClient ?? ApiClient();
+    return VendorProvider._(
+      client,
+      VendorApiService(client),
+      AuthApiService(client),
+    );
+  }
+
+  VendorProvider._(this._client, this.api, this._auth) {
     _vendor = VendorProfile(
       id: '',
       ownerName: '',

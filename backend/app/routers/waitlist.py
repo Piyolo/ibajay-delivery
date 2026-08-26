@@ -2,7 +2,7 @@ import asyncio
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, field_validator
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,6 +39,17 @@ class WaitlistJoin(BaseModel):
 class WaitlistJoined(BaseModel):
     message: str
     already_registered: bool = False
+
+
+class WaitlistCount(BaseModel):
+    count: int
+
+
+@router.get("/count", response_model=WaitlistCount)
+async def waitlist_count(db: AsyncSession = Depends(get_db)):
+    """Public signup counter for the homepage. Only the total — no personal data."""
+    total = await db.scalar(select(func.count()).select_from(WaitlistEntry))
+    return WaitlistCount(count=total or 0)
 
 
 @router.post("", response_model=WaitlistJoined, status_code=status.HTTP_200_OK)

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/vendor_provider.dart';
+import '../../services/auth_api_service.dart';
 import '../../theme/app_theme.dart';
 import '../main_shell.dart';
 import '../onboarding/store_setup_screen.dart';
@@ -55,6 +56,99 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  /// Real forgot-password flow: email -> OTP -> new password, against
+  /// POST /auth/forgot-password/start and /reset.
+  void _showForgotPasswordDialog() {
+    final emailCtrl = TextEditingController();
+    final otpCtrl = TextEditingController();
+    final passwordCtrl = TextEditingController();
+    final messenger = ScaffoldMessenger.of(context);
+    int step = 0; // 0=email, 1=otp+new password
+    bool busy = false;
+    String? error;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: Text(step == 0 ? 'Reset Password' : 'Check your email'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (step == 0) ...[
+                TextField(
+                  controller: emailCtrl,
+                  keyboardType: TextInputType.emailAddress,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                      labelText: 'Account email', hintText: 'you@example.com'),
+                ),
+              ] else ...[
+                TextField(
+                  controller: otpCtrl,
+                  keyboardType: TextInputType.number,
+                  autofocus: true,
+                  decoration: const InputDecoration(labelText: '6-digit code from email'),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: passwordCtrl,
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                      labelText: 'New password (8+ chars, Aa1)'),
+                ),
+              ],
+              if (error != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child:
+                      Text(error!, style: const TextStyle(color: AppColors.danger, fontSize: 12)),
+                ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: busy
+                  ? null
+                  : () async {
+                      setDialogState(() {
+                        busy = true;
+                        error = null;
+                      });
+                      final auth = AuthApiService(context.read<VendorProvider>().client);
+                      try {
+                        if (step == 0) {
+                          await auth.forgotPasswordStart(emailCtrl.text.trim());
+                          setDialogState(() => step = 1);
+                        } else {
+                          await auth.resetPassword(
+                            email: emailCtrl.text.trim(),
+                            otpCode: otpCtrl.text.trim(),
+                            newPassword: passwordCtrl.text,
+                          );
+                          if (!dialogContext.mounted) return;
+                          Navigator.pop(dialogContext);
+                          messenger.showSnackBar(const SnackBar(
+                              content: Text('Password reset — you can now log in')));
+                        }
+                      } on AuthException catch (e) {
+                        setDialogState(() => error = e.message);
+                      }
+                      setDialogState(() => busy = false);
+                    },
+              child: Text(busy ? 'Sending…' : (step == 0 ? 'Send Code' : 'Reset Password')),
+            ),
+          ],
+        ),
+      ),
+    ).whenComplete(() {
+      emailCtrl.dispose();
+      otpCtrl.dispose();
+      passwordCtrl.dispose();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -102,12 +196,12 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                   validator: (v) =>
-                      (v == null || v.length < 6) ? 'Password is required' : null,
+                      (v == null || v.isEmpty) ? 'Password is required' : null,
                 ),
                 Align(
                   alignment: Alignment.centerRight,
                   child: TextButton(
-                    onPressed: () {},
+                    onPressed: _showForgotPasswordDialog,
                     child: const Text('Forgot Password?'),
                   ),
                 ),

@@ -21,9 +21,17 @@ dependencies:
   # Formatting / utils
   intl: ^0.19.0
 
-  # Media & maps (kept ready for real integration; UI works with placeholders for now)
+  # Media & maps
   image_picker: ^1.1.2
-  google_maps_flutter: ^2.6.1
+  # OpenStreetMap-based maps (no API key required)
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
+
+  # Real location: permission prompts, GPS fix for address picking
+  geolocator: ^13.0.4
+
+  # Runtime notification permission (Android 13+ system dialog)
+  permission_handler: ^11.3.1
 
   # Local persistence for the auth session token
   shared_preferences: ^2.2.3

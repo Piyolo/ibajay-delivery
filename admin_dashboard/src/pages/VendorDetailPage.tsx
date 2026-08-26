@@ -2,15 +2,8 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, BadgeCheck, Ban, Check, RotateCcw, X } from 'lucide-react'
 import { getVendor, orders, reviews as allReviews } from '../data/mockDb'
-import {
-  approveVendor,
-  planLabel,
-  rejectVendor,
-  reinstateVendor,
-  statusToneOf,
-  suspendVendor,
-  verifyVendor,
-} from './VendorsPage'
+import type { Vendor } from '../types'
+import { statusToneOf } from './vendorAdmin'
 import { can, useAuth } from '../state/auth'
 import { flash } from '../lib/flash'
 import { fmtDate, fmtDateTime, money, num } from '../lib/format'
@@ -23,6 +16,34 @@ import {
   PageHeader,
   Stars,
 } from '../components/ui/primitives'
+
+// Prototype actions (mock data) — the list page performs the real
+// verify/pause calls against /admin/vendors; this detail view still runs
+// on prototype data until the vendor-detail API slice lands.
+function approveVendor(v: Vendor) {
+  v.status = 'approved'
+  flash(`Approved ${v.storeName}`)
+}
+function rejectVendor(v: Vendor) {
+  v.status = 'rejected'
+  flash(`Rejected ${v.storeName}`)
+}
+function suspendVendor(v: Vendor) {
+  v.status = 'suspended'
+  flash(`Suspended ${v.storeName}`)
+}
+function reinstateVendor(v: Vendor) {
+  v.status = 'approved'
+  flash(`${v.storeName} reinstated`)
+}
+function verifyVendor(v: Vendor) {
+  v.verification = 'verified'
+  flash(`Verified ${v.storeName}`)
+}
+function planLabel(p: string): string {
+  if (p === 'founding') return 'Founding Vendor'
+  return p.charAt(0).toUpperCase() + p.slice(1)
+}
 
 export function VendorDetailPage() {
   const { id } = useParams()

@@ -1,8 +1,12 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import '../../models/vendor.dart';
 import '../../providers/vendor_provider.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/osm_location_picker.dart';
 import '../main_shell.dart';
 
 class StoreSetupScreen extends StatefulWidget {
@@ -17,6 +21,16 @@ class _StoreSetupScreenState extends State<StoreSetupScreen> {
   late final TextEditingController _storeName;
   late final TextEditingController _description;
   final _address = TextEditingController();
+  final _searchController = TextEditingController();
+  final _searchFocus = FocusNode();
+  PickedLocation _picked = const PickedLocation(
+    lat: 11.8188,
+    lng: 122.1607,
+    address: 'Poblacion, Ibajay, Aklan',
+    barangay: 'Poblacion',
+  );
+  bool _showSuggestions = false;
+  bool _searching = false;
   final Set<String> _selectedCategories = {'Meals'};
   late List<OperatingHours> _hours;
   late DeliverySettings _delivery;
@@ -37,12 +51,92 @@ class _StoreSetupScreenState extends State<StoreSetupScreen> {
     }
   }
 
+  /// Free-text search: barangay names jump instantly from local data;
+  /// anything else falls back to OpenStreetMap's geocoder.
+  Future<void> _search() async {
+    final query = _searchController.text.trim();
+    if (query.isEmpty) return;
+
+    final barangay = matchIbajayBarangay(query);
+    if (barangay != null && barangayCenter(barangay) != null) {
+      _applyBarangay(barangay);
+      return;
+    }
+
+    setState(() => _searching = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final uri = Uri.parse(
+        'https://nominatim.openstreetmap.org/search'
+        '?q=${Uri.encodeComponent("$query, Ibajay, Aklan, Philippines")}'
+        '&format=jsonv2&limit=1&countrycodes=ph',
+      );
+      final response = await http
+          .get(uri, headers: {'User-Agent': 'ibajay-eats-vendor/0.1'})
+          .timeout(const Duration(seconds: 10));
+      if (response.statusCode == 200) {
+        final results = jsonDecode(response.body) as List;
+        if (results.isNotEmpty && mounted) {
+          final hit = results.first as Map<String, dynamic>;
+          final lat = double.tryParse(hit['lat'] as String? ?? '');
+          final lon = double.tryParse(hit['lon'] as String? ?? '');
+          if (lat != null && lon != null) {
+            final match = matchIbajayBarangay(query);
+            setState(() {
+              _picked = PickedLocation(
+                lat: lat,
+                lng: lon,
+                address:
+                    (hit['display_name'] as String?)?.split(',').take(3).join(', ') ??
+                        query,
+                barangay: match ?? _picked.barangay,
+              );
+              if (_picked.address.isNotEmpty) _address.text = _picked.address;
+              _showSuggestions = false;
+              _searchFocus.unfocus();
+            });
+          }
+          return;
+        }
+      }
+      messenger.showSnackBar(const SnackBar(
+          content: Text('No matching place found — try a barangay name or tap the map')));
+    } catch (_) {
+      messenger.showSnackBar(
+          const SnackBar(content: Text('Search is unavailable right now — try a barangay name')));
+    } finally {
+      if (mounted) setState(() => _searching = false);
+    }
+  }
+
   @override
   void dispose() {
     _storeName.dispose();
     _description.dispose();
     _address.dispose();
+    _searchController.dispose();
+    _searchFocus.dispose();
     super.dispose();
+  }
+
+  List<String> get _suggestions => suggestIbajayBarangays(_searchController.text);
+
+  /// Barangay chosen via search suggestion or dropdown: jump the pin to its
+  /// known center instantly (offline) and let the picker refine from there.
+  void _applyBarangay(String barangay) {
+    final center = barangayCenter(barangay);
+    setState(() {
+      _searchController.text = barangay;
+      _showSuggestions = false;
+      _searchFocus.unfocus();
+      _picked = PickedLocation(
+        lat: center?[0] ?? 11.8211,
+        lng: center?[1] ?? 122.1617,
+        address: 'Brgy. $barangay, Ibajay, Aklan',
+        barangay: barangay,
+      );
+      _address.text = 'Brgy. $barangay, Ibajay, Aklan';
+    });
   }
 
   Future<void> _finish() async {
@@ -56,7 +150,22 @@ class _StoreSetupScreenState extends State<StoreSetupScreen> {
     if (_address.text.trim().isEmpty) {
       setState(() {
         _step = 0;
-        _error = 'Store address is required';
+        _error = 'Pick your store location on the map';
+      });
+      return;
+    }
+    if (_picked.outsideIbajay) {
+      setState(() {
+        _step = 0;
+        _error = "Your store must be located in Ibajay, Aklan";
+      });
+      return;
+    }
+    // At least one fulfillment option must remain available.
+    if (!_delivery.deliveryEnabled && !_delivery.pickupEnabled && !_delivery.scheduledDeliveryEnabled) {
+      setState(() {
+        _step = 3;
+        _error = 'Enable at least one option — delivery, pickup, or scheduled delivery';
       });
       return;
     }
@@ -69,6 +178,8 @@ class _StoreSetupScreenState extends State<StoreSetupScreen> {
       storeName: _storeName.text.trim(),
       description: _description.text.trim(),
       address: _address.text.trim(),
+      latitude: _picked.lat,
+      longitude: _picked.lng,
       categories: _selectedCategories.toList(),
       delivery: _delivery,
       hours: _hours,
@@ -178,11 +289,130 @@ class _StoreSetupScreenState extends State<StoreSetupScreen> {
         const SizedBox(height: 8),
         TextFormField(controller: _description, maxLines: 3),
         const SizedBox(height: 16),
-        const Text('Store Address', style: TextStyle(fontWeight: FontWeight.w600)),
-        const SizedBox(height: 8),
+        const Text('Store Location', style: TextStyle(fontWeight: FontWeight.w600)),
+        const SizedBox(height: 4),
+        const Text(
+          'Search your barangay or tap the map — the pin must sit inside Ibajay. '
+          'The address is filled in for you.',
+          style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _searchController,
+          focusNode: _searchFocus,
+          decoration: InputDecoration(
+            prefixIcon: const Icon(Icons.search),
+            hintText: 'Search barangay (e.g. Aslum)',
+            isDense: true,
+            suffixIcon: _searching
+                ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2)),
+                  )
+                : (_searchController.text.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.close, size: 18),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _showSuggestions = false);
+                        },
+                      )
+                    : null),
+          ),
+          onChanged: (_) => setState(() => _showSuggestions = true),
+          onSubmitted: (_) => _search(),
+        ),
+        if (_showSuggestions && _suggestions.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Material(
+              elevation: 3,
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 180),
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  padding: EdgeInsets.zero,
+                  itemCount: _suggestions.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1, indent: 44),
+                  itemBuilder: (context, i) {
+                    final b = _suggestions[i];
+                    return ListTile(
+                      dense: true,
+                      leading: const Icon(Icons.location_city_outlined,
+                          size: 18, color: AppColors.textSecondary),
+                      title: Text(b, style: const TextStyle(fontSize: 14)),
+                      subtitle: const Text('Barangay, Ibajay, Aklan',
+                          style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                      onTap: () => _applyBarangay(b),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ),
+        const SizedBox(height: 10),
+        OsmLocationPicker(
+          initial: _picked,
+          target: _picked,
+          height: 240,
+          onChanged: (p) {
+            // Map taps update the pin; don't reopen suggestions.
+            setState(() {
+              _picked = p;
+              _showSuggestions = false;
+              if (p.address.isNotEmpty) _address.text = p.address;
+            });
+          },
+        ),
+        const SizedBox(height: 10),
+        DropdownButtonFormField<String>(
+          initialValue:
+              kIbajayBarangays.contains(_picked.barangay) ? _picked.barangay : 'Poblacion',
+          decoration: const InputDecoration(
+            prefixIcon: Icon(Icons.location_city_outlined),
+            labelText: 'Barangay',
+            isDense: true,
+          ),
+          items: kIbajayBarangays.map((b) => DropdownMenuItem(value: b, child: Text(b))).toList(),
+          onChanged: (v) {
+            if (v == null || v == _picked.barangay) return;
+            _applyBarangay(v);
+          },
+        ),
+        const SizedBox(height: 10),
+        if (_picked.outsideIbajay)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: AppColors.warning.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              border: Border.all(color: AppColors.warning.withValues(alpha: 0.5)),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.storefront_outlined, size: 18, color: AppColors.warning),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    "This spot is outside Ibajay — move the pin inside the municipality "
+                    'to continue.',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+          ),
         TextFormField(
           controller: _address,
-          decoration: const InputDecoration(hintText: 'e.g. Rizal St, Poblacion, Ibajay, Aklan'),
+          maxLines: 2,
+          decoration: const InputDecoration(
+            hintText: 'Picked address appears here — you can add details like the landmark',
+          ),
         ),
       ],
     );
@@ -262,10 +492,25 @@ class _StoreSetupScreenState extends State<StoreSetupScreen> {
   }
 
   Widget _deliveryStep() {
+    // Scheduled delivery is independent: a store can offer ONLY scheduled
+    // delivery (regular delivery + pickup both off), or any combination —
+    // as long as at least one option is on.
+    final showDeliveryAreas =
+        _delivery.deliveryEnabled || _delivery.scheduledDeliveryEnabled;
+    final noneSelected = !_delivery.deliveryEnabled &&
+        !_delivery.pickupEnabled &&
+        !_delivery.scheduledDeliveryEnabled;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text('Delivery Options', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 6),
+        const Text(
+          'Pick how customers can receive their orders. You can offer scheduled '
+          'delivery on its own, or combine options.',
+          style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+        ),
         const SizedBox(height: 16),
         _switchTile(
           title: 'Delivery',
@@ -285,47 +530,63 @@ class _StoreSetupScreenState extends State<StoreSetupScreen> {
           value: _delivery.scheduledDeliveryEnabled,
           onChanged: (v) => setState(() => _delivery.scheduledDeliveryEnabled = v),
         ),
-        const SizedBox(height: 16),
-        Row(
-          children: [
-            const Expanded(
-              child: Text('Delivery Areas', style: TextStyle(fontWeight: FontWeight.w700)),
+        if (noneSelected)
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(top: 4),
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: AppColors.danger.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(AppRadius.md),
             ),
-            Text(
-              '${_delivery.deliveryBarangays.length} of ${kIbajayBarangays.length} selected',
-              style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            child: const Text(
+              'Enable at least one option so customers can order from you.',
+              style: TextStyle(color: AppColors.danger, fontSize: 12),
             ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        const Text(
-          'Pick which barangays in Ibajay you can deliver to — you can adjust this later in Delivery Settings.',
-          style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
-        ),
-        const SizedBox(height: 10),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: kIbajayBarangays.map((b) {
-            final selected = _delivery.deliveryBarangays.contains(b);
-            return FilterChip(
-              label: Text(b),
-              selected: selected,
-              onSelected: (_) => setState(() {
-                selected
-                    ? _delivery.deliveryBarangays.remove(b)
-                    : _delivery.deliveryBarangays.add(b);
-              }),
-              selectedColor: AppColors.primary.withValues(alpha: 0.15),
-              checkmarkColor: AppColors.primary,
-              labelStyle: TextStyle(
-                color: selected ? AppColors.primary : AppColors.textPrimary,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                fontSize: 12.5,
+          ),
+        if (showDeliveryAreas) ...[
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              const Expanded(
+                child: Text('Delivery Areas', style: TextStyle(fontWeight: FontWeight.w700)),
               ),
-            );
-          }).toList(),
-        ),
+              Text(
+                '${_delivery.deliveryBarangays.length} of ${kIbajayBarangays.length} selected',
+                style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Pick which barangays in Ibajay you can deliver to — you can adjust this later in Delivery Settings.',
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: kIbajayBarangays.map((b) {
+              final selected = _delivery.deliveryBarangays.contains(b);
+              return FilterChip(
+                label: Text(b),
+                selected: selected,
+                onSelected: (_) => setState(() {
+                  selected
+                      ? _delivery.deliveryBarangays.remove(b)
+                      : _delivery.deliveryBarangays.add(b);
+                }),
+                selectedColor: AppColors.primary.withValues(alpha: 0.15),
+                checkmarkColor: AppColors.primary,
+                labelStyle: TextStyle(
+                  color: selected ? AppColors.primary : AppColors.textPrimary,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  fontSize: 12.5,
+                ),
+              );
+            }).toList(),
+          ),
+        ],
       ],
     );
   }

@@ -13,6 +13,7 @@ class OperatingHoursScreen extends StatefulWidget {
 
 class _OperatingHoursScreenState extends State<OperatingHoursScreen> {
   late List<OperatingHours> _hours;
+  bool _saving = false;
 
   @override
   void initState() {
@@ -23,8 +24,17 @@ class _OperatingHoursScreenState extends State<OperatingHoursScreen> {
         .toList();
   }
 
-  void _save() {
-    context.read<VendorProvider>().updateOperatingHours(_hours);
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    final provider = context.read<VendorProvider>();
+    await provider.updateOperatingHours(_hours);
+    if (!mounted) return;
+    setState(() => _saving = false);
+    if (provider.lastError != null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Not saved — ${provider.lastError}')));
+      return;
+    }
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Operating hours saved')));
     Navigator.of(context).pop();
   }
@@ -49,7 +59,14 @@ class _OperatingHoursScreenState extends State<OperatingHoursScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Operating Hours'),
-        actions: [TextButton(onPressed: _save, child: const Text('Save'))],
+        actions: [
+          TextButton(
+            onPressed: _saving ? null : _save,
+            child: _saving
+                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Text('Save'),
+          ),
+        ],
       ),
       body: SafeArea(
         child: ListView(

@@ -299,8 +299,7 @@ const allMenuItems = Object.values(menuByVendor).flat()
 
 // ---------------------------------------------------------------- Orders
 
-let orderSeq = 1088
-let orderCounter = orderSeq
+let orderCounter = 1088
 
 function makeOrder(status: OrderStatus, placedDaysAgo: number): Order {
   const vendor = pick([vendors[0], vendors[0], vendors[1], vendors[2], vendors[3], vendors[4], vendors[5]])
@@ -325,7 +324,7 @@ function makeOrder(status: OrderStatus, placedDaysAgo: number): Order {
       ? new Date(placedAt.getTime() + 36 * 3600 * 1000)
       : undefined
   return {
-    id: `ORD-${orderSeq++}`,
+    id: `ORD-${orderCounter++}`,
     vendorId: vendor.id,
     customerId: customer.id,
     items,

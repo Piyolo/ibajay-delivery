@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 
 import 'app_config.dart';
 
@@ -16,7 +17,8 @@ class ApiClient {
   ApiClient({http.Client? client, String? baseUrl, Duration? timeout})
       : _client = client ?? http.Client(),
         baseUrl = baseUrl ?? AppConfig.apiBaseUrl,
-        timeout = timeout ?? const Duration(seconds: 10);
+        // Generous enough for free-tier server cold starts.
+        timeout = timeout ?? const Duration(seconds: 25);
 
   final http.Client _client;
   final String baseUrl;
@@ -72,6 +74,42 @@ class ApiClient {
   Future<void> delete(String path) async {
     final response = await _send(_client.delete(_uri(path), headers: _headers()));
     _handle(response);
+  }
+
+  /// Uploads a local file as a multipart POST (used for logo/banner images).
+  /// Returns the decoded response, e.g. {"url": "https://..."}.
+  ///
+  /// [fileName]/[contentType] override what the http package guesses from
+  /// the path — some pickers hand back extension-less cache files, and a
+  /// missing Content-Type makes the backend reject the upload.
+  Future<dynamic> postMultipart(
+    String path, {
+    required String filePath,
+    String? fileName,
+    String? contentType,
+  }) async {
+    final mediaType = contentType == null ? null : MediaType.parse(contentType);
+    final request = http.MultipartRequest('POST', _uri(path))
+      ..headers.addAll(_headers())
+      ..files.add(await http.MultipartFile.fromPath(
+        'file',
+        filePath,
+        filename: fileName,
+        contentType: mediaType,
+      ));
+    try {
+      final streamed = await request.send().timeout(timeout);
+      final response = await http.Response.fromStream(streamed);
+      return _handle(response);
+    } on TimeoutException {
+      throw ApiException(
+        'Upload timed out. Check your connection and try again.',
+      );
+    } on SocketException {
+      throw ApiException(
+        'No network connection. Please check your internet and try again.',
+      );
+    }
   }
 
   Map<String, String> _headers() => {

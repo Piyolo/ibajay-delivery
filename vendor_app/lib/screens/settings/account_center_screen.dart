@@ -6,7 +6,10 @@ import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
 
 /// Account Center — the vendor's personal account (identity & security),
-/// deliberately separate from store configuration. Persists every change.
+/// deliberately separate from store configuration.
+///
+/// Note: owner name/email/mobile edits persist locally (cached profile);
+/// the backend has no user-profile update endpoint yet.
 class AccountCenterScreen extends StatelessWidget {
   const AccountCenterScreen({super.key});
 
@@ -178,9 +181,8 @@ class AccountCenterScreen extends StatelessWidget {
           ),
         ],
       ),
-    );
+    ).whenComplete(controller.dispose);
   }
-
   /// Two-step dialog: verify current password first, then set the new one.
   void _changePassword(BuildContext context) {
     final currentController = TextEditingController();
@@ -240,10 +242,7 @@ class AccountCenterScreen extends StatelessWidget {
           ),
           actions: [
             TextButton(
-              onPressed: () {
-                Navigator.of(dialogContext).pop();
-                if (!verified) Navigator.of(context).pop(); // cancel entirely
-              },
+              onPressed: () => Navigator.of(dialogContext).pop(),
               child: const Text('Cancel'),
             ),
             ElevatedButton(
@@ -287,7 +286,11 @@ class AccountCenterScreen extends StatelessWidget {
           ],
         ),
       ),
-    );
+    ).whenComplete(() {
+      currentController.dispose();
+      newController.dispose();
+      confirmController.dispose();
+    });
   }
 }
 

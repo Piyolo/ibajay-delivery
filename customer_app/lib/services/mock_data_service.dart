@@ -8,9 +8,9 @@ class MockDataService {
   MockDataService._();
   static final MockDataService instance = MockDataService._();
 
-  // Ibajay, Aklan town center, used as the reference point for demo vendors.
-  static const double townLat = 11.5459;
-  static const double townLng = 122.2039;
+  // Ibajay town proper, used as the reference point for demo vendors.
+  static const double townLat = 11.8211;
+  static const double townLng = 122.1617;
 
   List<VendorProfile> _vendors = [];
 

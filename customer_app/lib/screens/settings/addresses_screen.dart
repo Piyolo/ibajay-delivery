@@ -5,6 +5,7 @@ import '../../models/user.dart';
 import '../../providers/location_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/common.dart';
+import '../../widgets/osm_location_picker.dart';
 
 class AddressesScreen extends StatelessWidget {
   const AddressesScreen({super.key});
@@ -55,7 +56,7 @@ class AddressesScreen extends StatelessWidget {
                         ],
                       ],
                     ),
-                    subtitle: Text('Brgy. ${addr.barangay} · ${addr.fullAddress}'),
+                    subtitle: Text('Brgy. ${addr.barangay.isEmpty ? '—' : addr.barangay} · ${addr.fullAddress}'),
                     trailing: IconButton(
                       icon: const Icon(Icons.delete_outline, color: AppColors.danger),
                       onPressed: () => location.removeAddress(addr.id),
@@ -75,11 +76,17 @@ class AddressesScreen extends StatelessWidget {
 
   void _showAddAddressSheet(BuildContext context) {
     final labelController = TextEditingController(text: 'Home');
-    final addressController = TextEditingController();
-    String barangay = 'Poblacion';
+    PickedLocation picked = const PickedLocation(
+      lat: LocationConstants.townLat,
+      lng: LocationConstants.townLng,
+      address: 'Poblacion, Ibajay, Aklan',
+      barangay: 'Poblacion',
+    );
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      isDismissible: false,
       builder: (sheetContext) {
         return StatefulBuilder(
           builder: (sheetContext, setSheetState) => Padding(
@@ -91,53 +98,63 @@ class AddressesScreen extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Add a new address', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 16),
+                const Text('Pin your delivery address', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 12),
                 TextField(
                   controller: labelController,
                   decoration: const InputDecoration(labelText: 'Label (e.g. Home, Work)'),
                 ),
                 const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  initialValue: barangay,
-                  decoration: const InputDecoration(
-                    prefixIcon: Icon(Icons.location_city_outlined),
-                    labelText: 'Barangay',
+                OsmLocationPicker(
+                  height: 240,
+                  onChanged: (p) => setSheetState(() => picked = p),
+                ),
+                if (picked.outsideIbajay)
+                  Container(
+                    margin: const EdgeInsets.only(top: 10),
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppColors.warning.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(AppRadius.md),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.local_shipping_outlined, size: 18, color: AppColors.warning),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            "Outside Ibajay — deliveries aren't available here; "
+                            'this address can only be used for pickup orders.',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                else if (picked.address.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: Text(picked.address,
+                        style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
                   ),
-                  items: LocationConstants.ibajayBarangays
-                      .map((b) => DropdownMenuItem(value: b, child: Text(b)))
-                      .toList(),
-                  onChanged: (v) => setSheetState(() => barangay = v ?? barangay),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: addressController,
-                  decoration: const InputDecoration(
-                    labelText: 'Full Address',
-                    hintText: 'House number, street, landmark',
-                  ),
-                  maxLines: 2,
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Pin location defaults to Ibajay town center for this demo — real builds use the map picker.',
-                  style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
-                ),
                 const SizedBox(height: 16),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
                     onPressed: () {
-                      if (addressController.text.trim().isEmpty) return;
+                      Navigator.of(sheetContext).pop();
                       context.read<LocationProvider>().addAddress(SavedAddress(
                             id: 'addr_${DateTime.now().millisecondsSinceEpoch}',
-                            label: labelController.text.trim().isEmpty ? 'Home' : labelController.text.trim(),
-                            fullAddress: addressController.text.trim(),
-                            barangay: barangay,
-                            latitude: LocationConstants.townLat,
-                            longitude: LocationConstants.townLng,
+                            label:
+                                labelController.text.trim().isEmpty ? 'Home' : labelController.text.trim(),
+                            fullAddress: picked.address.isNotEmpty
+                                ? picked.address
+                                : 'Lat ${picked.lat.toStringAsFixed(5)}, Lng ${picked.lng.toStringAsFixed(5)}',
+                            barangay: picked.barangay,
+                            latitude: picked.lat,
+                            longitude: picked.lng,
                           ));
-                      Navigator.of(sheetContext).pop();
                     },
                     child: const Text('Save Address'),
                   ),

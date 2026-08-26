@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../../models/food_item.dart';
 import '../../models/vendor.dart';
@@ -20,7 +21,13 @@ class _FoodFormScreenState extends State<FoodFormScreen> {
   late TextEditingController _price;
   late String _category;
   late bool _isAvailable;
+  late bool _isFeatured;
   late List<FoodAddon> _addons;
+
+  // Preserved on edit so saving never wipes the item's photo/flag.
+  String _imageUrl = '';
+  bool _saving = false;
+  bool _uploading = false;
 
   bool get _isEditing => widget.existingItem != null;
 
@@ -31,8 +38,10 @@ class _FoodFormScreenState extends State<FoodFormScreen> {
     _name = TextEditingController(text: item?.name ?? '');
     _description = TextEditingController(text: item?.description ?? '');
     _price = TextEditingController(text: item != null ? item.price.toStringAsFixed(0) : '');
-    _category = item?.category ?? kStoreCategoryOptions.first;
+    _category = (item?.category.isNotEmpty ?? false) ? item!.category : kStoreCategoryOptions.first;
     _isAvailable = item?.isAvailable ?? true;
+    _isFeatured = item?.isFeatured ?? false;
+    _imageUrl = item?.imageUrl ?? '';
     _addons = item != null ? List.from(item.addons.map((a) => FoodAddon(name: a.name, price: a.price))) : [];
   }
 
@@ -44,12 +53,34 @@ class _FoodFormScreenState extends State<FoodFormScreen> {
     super.dispose();
   }
 
+  Future<void> _pickPhoto() async {
+    final picker = ImagePicker();
+    final XFile? file;
+    try {
+      file = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
+    } catch (_) {
+      return;
+    }
+    if (file == null || !mounted) return;
+
+    setState(() => _uploading = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final url = await context.read<MenuProvider>().uploadImage(file.path);
+      if (!mounted) return;
+      setState(() => _imageUrl = url);
+    } catch (_) {
+      messenger.showSnackBar(const SnackBar(content: Text('Could not upload the photo — try again')));
+    }
+    if (mounted) setState(() => _uploading = false);
+  }
+
   void _addAddonDialog() {
     final nameCtrl = TextEditingController();
     final priceCtrl = TextEditingController();
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Add Extra / Add-on'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -64,26 +95,31 @@ class _FoodFormScreenState extends State<FoodFormScreen> {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () {
               final price = double.tryParse(priceCtrl.text) ?? 0;
               if (nameCtrl.text.trim().isEmpty) return;
               setState(() => _addons.add(FoodAddon(name: nameCtrl.text.trim(), price: price)));
-              Navigator.pop(context);
+              Navigator.pop(dialogContext);
             },
             child: const Text('Add'),
           ),
         ],
       ),
-    );
+    ).then((_) {
+      nameCtrl.dispose();
+      priceCtrl.dispose();
+    });
   }
 
-  void _save() {
+  Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     final menu = context.read<MenuProvider>();
     final price = double.tryParse(_price.text) ?? 0;
+    final messenger = ScaffoldMessenger.of(context);
 
+    setState(() => _saving = true);
     if (_isEditing) {
       final updated = FoodItem(
         id: widget.existingItem!.id,
@@ -91,11 +127,12 @@ class _FoodFormScreenState extends State<FoodFormScreen> {
         description: _description.text.trim(),
         price: price,
         category: _category,
+        imageUrl: _imageUrl,
         isAvailable: _isAvailable,
+        isFeatured: _isFeatured,
         addons: _addons,
-        totalSold: widget.existingItem!.totalSold,
       );
-      menu.updateItem(updated);
+      await menu.updateItem(updated);
     } else {
       // The server assigns the real id; addItem swaps it in on success.
       final newItem = FoodItem(
@@ -104,17 +141,51 @@ class _FoodFormScreenState extends State<FoodFormScreen> {
         description: _description.text.trim(),
         price: price,
         category: _category,
+        imageUrl: _imageUrl,
         isAvailable: _isAvailable,
+        isFeatured: _isFeatured,
         addons: _addons,
       );
-      menu.addItem(newItem);
+      await menu.addItem(newItem);
+    }
+    if (!mounted) return;
+    setState(() => _saving = false);
+
+    // Only close on success; a failed save stays open with the reason.
+    if (menu.lastError != null) {
+      messenger.showSnackBar(SnackBar(content: Text('Not saved — ${menu.lastError}')));
+      return;
     }
     Navigator.of(context).pop();
   }
 
-  void _delete() {
+  Future<void> _delete() async {
     if (!_isEditing) return;
-    context.read<MenuProvider>().deleteItem(widget.existingItem!.id);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete this item?'),
+        content: Text('"${widget.existingItem!.name}" will be removed from your menu. This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Keep Item')),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final menu = context.read<MenuProvider>();
+    await menu.deleteItem(widget.existingItem!.id);
+    if (!mounted) return;
+    if (menu.lastError != null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Not deleted — ${menu.lastError}')));
+      return;
+    }
     Navigator.of(context).pop();
   }
 
@@ -136,23 +207,25 @@ class _FoodFormScreenState extends State<FoodFormScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  height: 120,
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceMuted,
-                    borderRadius: BorderRadius.circular(AppRadius.md),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: const Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.add_photo_alternate_outlined, color: AppColors.textSecondary),
-                        SizedBox(height: 4),
-                        Text('Upload photo', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-                      ],
+                GestureDetector(
+                  onTap: _uploading ? null : _pickPhoto,
+                  child: Container(
+                    height: 120,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceMuted,
+                      borderRadius: BorderRadius.circular(AppRadius.md),
+                      border: Border.all(color: AppColors.border),
                     ),
+                    child: _uploading
+                        ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+                        : _imageUrl.isNotEmpty
+                            ? ClipRRect(
+                                borderRadius: BorderRadius.circular(AppRadius.md),
+                                child: Image.network(_imageUrl, fit: BoxFit.cover, width: double.infinity,
+                                    errorBuilder: (_, __, ___) => _uploadHint()),
+                              )
+                            : _uploadHint(),
                   ),
                 ),
                 const SizedBox(height: 18),
@@ -173,6 +246,7 @@ class _FoodFormScreenState extends State<FoodFormScreen> {
                 ),
                 const SizedBox(height: 14),
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(
                       child: Column(
@@ -218,6 +292,15 @@ class _FoodFormScreenState extends State<FoodFormScreen> {
                   activeThumbColor: AppColors.primary,
                   onChanged: (v) => setState(() => _isAvailable = v),
                 ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Featured', style: TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: const Text('Show this item in customers\' Featured Foods carousel',
+                      style: TextStyle(fontSize: 12)),
+                  value: _isFeatured,
+                  activeThumbColor: AppColors.primary,
+                  onChanged: (v) => setState(() => _isFeatured = v),
+                ),
                 const Divider(height: 28),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -245,11 +328,32 @@ class _FoodFormScreenState extends State<FoodFormScreen> {
                       ),
                     )),
                 const SizedBox(height: 24),
-                ElevatedButton(onPressed: _save, child: Text(_isEditing ? 'Save Changes' : 'Add Item')),
+                ElevatedButton(
+                  onPressed: _saving ? null : _save,
+                  child: _saving
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : Text(_isEditing ? 'Save Changes' : 'Add Item'),
+                ),
               ],
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _uploadHint() {
+    return const Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.add_photo_alternate_outlined, color: AppColors.textSecondary),
+          SizedBox(height: 4),
+          Text('Upload photo', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+        ],
       ),
     );
   }

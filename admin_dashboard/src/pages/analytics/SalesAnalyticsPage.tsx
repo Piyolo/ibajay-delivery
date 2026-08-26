@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { monthlySeries, revenueSeries } from '../../data/mockDb'
-import { money, num, pct } from '../../lib/format'
+import { money, num } from '../../lib/format'
 import { Card, CardHead, KpiCard, PageHeader } from '../../components/ui/primitives'
 import { OrdersBarChart, RevenueAreaChart } from '../../components/charts/charts'
 import { useAsyncData } from '../../state/live'

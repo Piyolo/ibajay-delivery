@@ -66,7 +66,7 @@ class _VerifyEmailChangeScreenState extends State<VerifyEmailChangeScreen> {
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
             const SizedBox(height: 8),
             Text(
-              'We sent a 6-digit code to ${widget.newEmail}. Enter it below to confirm your new email.',
+              'Enter the 6-digit code to confirm your new email (${widget.newEmail}).',
               style: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
             ),
             const SizedBox(height: 4),
@@ -78,7 +78,9 @@ class _VerifyEmailChangeScreenState extends State<VerifyEmailChangeScreen> {
                 borderRadius: BorderRadius.circular(AppRadius.sm),
               ),
               child: Text(
-                'Demo code: ${widget.demoOtp}',
+                // No backend email-change endpoint yet — the code is local
+                // and shown here so the flow is completable.
+                'Offline preview — code: ${widget.demoOtp} (saved on this device only)',
                 style: const TextStyle(fontSize: 12, color: AppColors.info),
               ),
             ),

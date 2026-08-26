@@ -1,49 +1,92 @@
 import { Link } from 'react-router-dom'
 import { ArrowRight } from 'lucide-react'
-import {
-  bestSellers,
-  customerById,
-  getVendor,
-  kpis,
-  orders,
-  revenueSeries,
-  topVendors,
-} from '../data/mockDb'
-import { fmtDateTime, money, num, pct } from '../lib/format'
+import { api } from '../lib/api'
+import { fmtDateTime, money, num } from '../lib/format'
 import { Badge, Card, CardHead, EmptyState, initials, KpiCard, statusLabel, statusTone } from '../components/ui/primitives'
 import { OrdersBarChart, RevenueAreaChart } from '../components/charts/charts'
 import { useAsyncData } from '../state/live'
 
+interface Overview {
+  vendors_total: number
+  vendors_open: number
+  vendors_verified: number
+  customers_total: number
+  orders_today: number
+  orders_this_week: number
+  orders_active: number
+  revenue_today: number
+  revenue_week: number
+  week: Array<{ date: string; revenue: number; orders: number }>
+}
+
+interface AdminOrderRow {
+  id: string
+  order_number: string
+  status: string
+  total: number
+  created_at: string
+  customer_name: string | null
+  vendor_name: string | null
+}
+
+interface AdminVendorRow {
+  id: string
+  store_name: string
+  logo_url: string | null
+  is_open: boolean
+  is_verified: boolean
+  average_rating: number
+  menu_count: number
+}
+
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
 export function DashboardHomePage() {
-  const k = useAsyncData(() => kpis()).data ?? kpis()
-  const series = useAsyncData(() => revenueSeries(14)).data ?? []
-  const recent = orders.slice(0, 8)
-  const top = topVendors(5)
-  const products = bestSellers(5)
-  const maxRevenue = top[0]?.revenue ?? 1
+  const overview = useAsyncData(async () => {
+    await new Promise((r) => setTimeout(r, 0))
+    return api<Overview>('/admin/overview')
+  }).data
+
+  const orders = useAsyncData(() => api<AdminOrderRow[]>('/admin/orders', { query: { limit: 8 } })).data ?? []
+  const vendors = useAsyncData(() => api<AdminVendorRow[]>('/admin/vendors')).data ?? []
+
+  const series = (overview?.week ?? []).map((d) => ({
+    label: DAYS[new Date(`${d.date}T00:00:00`).getDay()],
+    revenue: d.revenue,
+    orders: d.orders,
+  }))
+  const top = [...vendors].sort((a, b) => b.average_rating - a.average_rating).slice(0, 5)
 
   return (
     <>
       <div className="grid-kpi">
-        <KpiCard label="Orders Today" value={num(k.todayOrders)} delta={k.todayOrdersDelta} />
-        <KpiCard label="Revenue Today" value={money(k.todayRevenue)} delta={k.todayRevenueDelta} />
-        <KpiCard label="Active Vendors" value={k.activeVendors} />
-        <KpiCard label="Verified Vendors" value={`${k.verifiedVendors}/${k.activeVendors}`} />
-        <KpiCard label="Active Customers" value={num(k.activeCustomers)} />
-        <KpiCard label="Pending Approvals" value={k.pendingApprovals} deltaGoodDirection="down" />
+        <KpiCard label="Orders Today" value={num(overview?.orders_today ?? 0)} />
+        <KpiCard label="Revenue Today" value={money(overview?.revenue_today ?? 0)} />
+        <KpiCard label="Orders This Week" value={num(overview?.orders_this_week ?? 0)} />
+        <KpiCard label="Live Orders" value={num(overview?.orders_active ?? 0)} />
+        <KpiCard label="Open Vendors" value={`${overview?.vendors_open ?? 0}/${overview?.vendors_total ?? 0}`} />
+        <KpiCard label="Customers" value={num(overview?.customers_total ?? 0)} />
       </div>
 
       <div className="grid-2">
         <Card>
-          <CardHead title="Revenue — last 14 days" />
+          <CardHead title="Revenue — last 7 days" />
           <div className="card-pad">
-            <RevenueAreaChart data={series} />
+            {series.length ? (
+              <RevenueAreaChart data={series} />
+            ) : (
+              <EmptyState message="No sales recorded yet." />
+            )}
           </div>
         </Card>
         <Card>
-          <CardHead title="Orders — last 14 days" />
+          <CardHead title="Orders — last 7 days" />
           <div className="card-pad">
-            <OrdersBarChart data={series} />
+            {series.length ? (
+              <OrdersBarChart data={series} />
+            ) : (
+              <EmptyState message="No orders yet." />
+            )}
           </div>
         </Card>
       </div>
@@ -69,70 +112,61 @@ export function DashboardHomePage() {
                 </tr>
               </thead>
               <tbody>
-                {recent.map((o) => {
-                  const c = customerById(o.customerId)
-                  return (
-                    <tr key={o.id}>
-                      <td>
-                        <div className="cell-main mono">{o.id}</div>
-                        <div className="cell-sub">{fmtDateTime(o.placedAt)}</div>
-                      </td>
-                      <td>{c?.name}</td>
-                      <td className="num">{money(o.total)}</td>
-                      <td>
-                        <Badge tone={statusTone(o.status)}>{statusLabel(o.status)}</Badge>
-                      </td>
-                    </tr>
-                  )
-                })}
+                {orders.map((o) => (
+                  <tr key={o.id}>
+                    <td>
+                      <div className="cell-main mono">{o.order_number}</div>
+                      <div className="cell-sub">{fmtDateTime(new Date(o.created_at))}</div>
+                    </td>
+                    <td>{o.customer_name ?? '—'}</td>
+                    <td className="num">{money(o.total)}</td>
+                    <td>
+                      <Badge tone={statusTone(o.status as never)}>{statusLabel(o.status as never)}</Badge>
+                    </td>
+                  </tr>
+                ))}
+                {!orders.length && (
+                  <tr>
+                    <td colSpan={4}><EmptyState message="No orders yet." /></td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
         </Card>
 
         <Card>
-          <CardHead title="Top Vendors" action={<Link to="/analytics/vendors" className="link">Details</Link>} />
+          <CardHead title="Stores" action={<Link to="/vendors" className="link">Manage</Link>} />
           <div>
             {top.map((v) => (
               <Link to={`/vendors/${v.id}`} key={v.id} className="list-row" style={{ display: 'block' }}>
                 <div className="row-flex" style={{ justifyContent: 'space-between' }}>
                   <div className="row-flex">
-                    <div className="mini-avatar">{initials(v.storeName)}</div>
+                    <div className="mini-avatar">{initials(v.store_name)}</div>
                     <div>
                       <div className="cell-main" style={{ fontSize: 12.5 }}>
-                        {v.storeName} {v.pilot && <span className="chip pilot">Pilot</span>}
+                        {v.store_name} {!v.is_open && <span className="chip pilot">Closed</span>}
                       </div>
-                      <div className="cell-sub">{num(v.ordersCount)} orders</div>
+                      <div className="cell-sub">
+                        ★ {v.average_rating.toFixed(1)} · {num(v.menu_count)} items
+                      </div>
                     </div>
                   </div>
-                  <div className="cell-main mono" style={{ fontSize: 12.5 }}>{money(v.revenue)}</div>
-                </div>
-                <div className="progress-track" style={{ marginTop: 7 }}>
-                  <div
-                    className="progress-fill"
-                    style={{ width: `${Math.max(6, (v.revenue / maxRevenue) * 100)}%` }}
-                  />
+                  {v.is_verified && <Badge tone="blue" dot={false}>Verified</Badge>}
                 </div>
               </Link>
             ))}
+            {!top.length && <EmptyState message="No stores registered yet." />}
           </div>
         </Card>
 
         <Card>
-          <CardHead title="Best Sellers" />
+          <CardHead title="Platform Snapshot" />
           <div>
-            {products.length === 0 && <EmptyState message="No sales yet." />}
-            {products.map((p) => (
-              <div key={`${p.vendorId}-${p.name}`} className="list-row">
-                <div>
-                  <div className="cell-main" style={{ fontSize: 12.5 }}>{p.name}</div>
-                  <div className="cell-sub">{p.vendorName} · {num(p.unitsSold)} sold</div>
-                </div>
-                <div style={{ marginLeft: 'auto' }} className="mono small">
-                  {money(p.revenue)}
-                </div>
-              </div>
-            ))}
+            <SnapshotRow label="Revenue this week" value={money(overview?.revenue_week ?? 0)} />
+            <SnapshotRow label="Verified stores" value={`${overview?.vendors_verified ?? 0} of ${overview?.vendors_total ?? 0}`} />
+            <SnapshotRow label="Registered customers" value={num(overview?.customers_total ?? 0)} />
+            <SnapshotRow label="Live orders right now" value={num(overview?.orders_active ?? 0)} />
           </div>
         </Card>
       </div>
@@ -140,7 +174,11 @@ export function DashboardHomePage() {
   )
 }
 
-export function DeltaInline({ v }: { v: number }) {
-  const cls = v > 0 ? 'up' : v < 0 ? 'down' : 'flat'
-  return <span className={`delta ${cls}`}>{pct(v)}</span>
+function SnapshotRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="list-row">
+      <span className="cell-sub">{label}</span>
+      <span className="cell-main mono" style={{ marginLeft: 'auto' }}>{value}</span>
+    </div>
+  )
 }

@@ -1,12 +1,10 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { tickSimulation } from '../data/mockDb'
 
 /**
- * Simulates the ~30s automatic data refresh required by the Stage 1
- * spec — no WebSockets. Each tick nudges the mock dataset (orders
- * advance status, new orders occasionally arrive) and notifies pages
- * to refetch.
+ * Auto-refresh heartbeat. Pages re-run their API fetches on every tick
+ * (~30s), keeping KPIs, orders and vendor lists current without a manual
+ * reload.
  */
 
 interface LiveContextValue {
@@ -26,7 +24,6 @@ export function LiveProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     timer.current = window.setInterval(() => {
-      tickSimulation()
       setLastUpdatedAt(Date.now())
       setTick((t) => t + 1)
     }, REFRESH_MS)

@@ -90,6 +90,59 @@ class PlaceholderImage extends StatelessWidget {
   }
 }
 
+/// Renders [url] when it points at a real image, otherwise falls back to
+/// a themed placeholder — used for vendor logos/banners/food photos that
+/// arrive from the API.
+class RemoteImage extends StatelessWidget {
+  final String url;
+  final double? width;
+  final double? height;
+  final IconData icon;
+  final double borderRadius;
+  final BoxFit fit;
+
+  const RemoteImage({
+    super.key,
+    required this.url,
+    this.width,
+    this.height,
+    this.icon = Icons.restaurant,
+    this.borderRadius = 0,
+    this.fit = BoxFit.cover,
+  });
+
+  bool get _hasUrl {
+    final u = url.trim();
+    return u.startsWith('http://') || u.startsWith('https://');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_hasUrl) {
+      return PlaceholderImage(
+        width: width,
+        height: height,
+        icon: icon,
+        borderRadius: borderRadius,
+      );
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(borderRadius),
+      child: Image.network(
+        url.trim(),
+        width: width,
+        height: height,
+        fit: fit,
+        errorBuilder: (_, __, ___) => PlaceholderImage(
+          width: width,
+          height: height,
+          icon: icon,
+        ),
+      ),
+    );
+  }
+}
+
 class PrimaryButton extends StatelessWidget {
   final String label;
   final VoidCallback? onPressed;

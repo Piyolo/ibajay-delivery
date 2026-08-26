@@ -14,7 +14,6 @@ class FoodItem {
   bool isAvailable;
   bool isFeatured;
   List<FoodAddon> addons;
-  int totalSold;
 
   FoodItem({
     required this.id,
@@ -26,7 +25,6 @@ class FoodItem {
     this.isAvailable = true,
     this.isFeatured = false,
     List<FoodAddon>? addons,
-    this.totalSold = 0,
   }) : addons = addons ?? [];
 
   /// Maps the backend's menu-item payload (snake_case, option groups with

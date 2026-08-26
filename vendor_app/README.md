@@ -1,86 +1,84 @@
-# Ibajay Eats — Vendor App (Flutter, UI-first scaffold)
+# Ibajay Eats — Vendor App
 
-This is a complete, runnable **UI layer** for the vendor side of the local food
-delivery platform described in the spec. It uses realistic mock data via
-`MockDataService` so every screen is fully browsable *today*, before the
-FastAPI backend exists. The provider layer (`lib/providers/`) is the seam
-where real API/WebSocket calls will replace mock data — screens never talk
-to `MockDataService` directly.
+Flutter app for vendors on Ibajay Eats, a local food marketplace for
+Ibajay, Aklan. Vendors manage their storefront, menu, and orders; all data
+is live against the FastAPI backend (`ApiClient` + `VendorApiService`).
 
 ## What's included
 
-- **Auth flow**: Login → Register (owner + store info) → Email OTP (6-digit,
-  5 min expiry, resend) → Create Password (live requirement checklist)
+- **Auth flow**: Login → Register (owner + store info) → Email OTP →
+  Create Password (live requirement checklist), plus forgot-password
 - **Store setup wizard**: categories → operating hours → delivery/pickup/
-  scheduled toggles + delivery radius
+  scheduled toggles + barangay coverage
 - **Orders dashboard**: New / Preparing / Out for Delivery / History tabs,
   Accept/Reject, status stepper, order detail with items/payment breakdown
-- **Delivery tracking mode**: Start/Stop Delivery, map placeholder ready for
-  Google Maps SDK, "Mark as Delivered"
+- **Vendor delivery tracking**: Start Delivery flips the order to
+  out_for_delivery (POST `/tracking/{id}/start`) and streams the vendor
+  device's GPS to the customer's live-tracking view until Mark as Delivered.
+  Ibajay Eats has no riders of its own — the vendor (or their designated
+  delivery person) fulfills every delivery.
 - **Menu management**: grouped-by-category list, availability toggle,
   add/edit form with extras/add-ons, delete
-- **Analytics**: daily/weekly/monthly sales bar chart, total sales/orders,
-  best sellers
-- **Chat**: order-based conversation list + message thread UI
-- **Store settings**: open/closed toggle, store info, hours, delivery
-  settings, account, logout
+- **Analytics**: today's sales/orders/completed/cancelled, last-7-days
+  revenue chart (from GET /vendor/me/analytics)
+- **Chat**: order-based conversation list + message thread over WebSocket
+- **Store settings**: open/closed toggle, store profile (logo/banner via
+  OpenStreetMap-based address picker), hours, delivery settings, account
 
 ## Running it
 
 ```bash
 flutter pub get
-flutter run
+flutter run --dart-define=API_BASE_URL=https://ibajay-delivery.onrender.com
 ```
 
-(Requires the Flutter SDK — not available in this sandbox, so the app
-hasn't been compiled here. The code is hand-written to be syntactically
-correct and idiomatic Flutter/Dart, but do a `flutter analyze` first thing
-after pulling it down.)
+Check for issues first:
 
-## Wiring up the real backend
+```bash
+flutter analyze
+```
 
-Every place a real API call belongs is marked `// TODO`. In short:
+## API surface used
 
-| Feature | Replace with |
+| Feature | Endpoint |
 |---|---|
-| `MockDataService` | `http` calls to the FastAPI REST endpoints |
-| OTP screen | `POST /auth/send-otp`, `POST /auth/verify-otp` (Resend-backed) |
-| Register/password | `POST /auth/register` |
-| Order status changes | `PATCH /orders/{id}/status` + WebSocket push to customer app |
-| Delivery tracking | Open a WebSocket (`/ws/orders/{id}/track`) and stream `Geolocator` position updates while `_tracking == true` |
-| Chat | WebSocket per order (`/ws/chats/{orderId}`) + `GET /chats/{orderId}/messages` for history |
-| Image upload (logo/banner/food photos) | `image_picker` → upload to Cloudinary → save returned URL |
-| Push notifications | Firebase Cloud Messaging — register device token after login |
-| Analytics | `GET /vendor/analytics?range=daily|weekly|monthly` |
+| Auth / OTP / password | `/auth/*` |
+| Store profile & status | `GET/PUT/PATCH /vendor/me`, `/vendor/me/status` |
+| Delivery settings | `PUT /vendor/me/delivery-settings` |
+| Operating hours | `PUT /vendor/me/hours` |
+| Categories | `PUT /vendor/me/categories` |
+| Image upload | `POST /uploads` (multipart) |
+| Menu CRUD | `/vendor/me/menu` |
+| Order inbox | `GET /orders/vendor/inbox` |
+| Status transitions | `PATCH /orders/{id}/status`, `POST /orders/{id}/cancel` |
+| Delivery tracking | `POST /tracking/{id}/start`, `POST /tracking/{id}/gps-ping` |
+| Analytics | `GET /vendor/me/analytics` |
+| Chat | WebSocket per thread + REST history |
 
 ## Project structure
 
 ```
 lib/
-  main.dart                 # entry point, providers, theme
+  main.dart                 # entry point, one shared ApiClient, providers, theme
   theme/app_theme.dart       # colors, spacing, radii, ThemeData
   models/                    # VendorProfile, FoodItem, VendorOrder, etc.
-  services/mock_data_service.dart
-  providers/                 # ChangeNotifier state — the API integration seam
+  services/                  # ApiClient, auth/vendor API services, prefs
+  providers/                 # ChangeNotifier state (vendor, orders, menu, chat)
   screens/
-    auth/                     # login, register, otp, create password
+    auth/                     # login, register, OTP, create password
     onboarding/store_setup_screen.dart
+    dashboard/                # quick-glance home tab
     orders/                   # dashboard, detail, delivery tracking
     menu/                     # menu list, food form
     analytics/analytics_screen.dart
     chat/                     # chat list, chat thread
-    settings/store_settings_screen.dart
+    settings/                 # store profile/status/hours/delivery/categories/account
     main_shell.dart           # bottom nav shell
-  widgets/                    # shared UI: status badge, section header, etc.
+  widgets/                    # shared UI: status badge, OSM picker, common
 ```
 
-## Next steps in this project
+## Notes
 
-1. **Backend** — FastAPI + PostgreSQL implementing the endpoints referenced
-   above, matching the `core database tables` in the original spec.
-2. **Customer app** — mirrors this structure (discovery, cart, checkout,
-   live tracking, chat) and consumes the same backend.
-3. **Admin dashboard** — React app for vendor verification, platform
-   analytics, and user/category management.
-
-Say the word and I'll build the next piece.
+- The single `ApiClient` created in `main.dart` carries the auth token;
+  always pass it into providers so requests stay authenticated.
+- Live GPS sharing only runs while an order is out_for_delivery.

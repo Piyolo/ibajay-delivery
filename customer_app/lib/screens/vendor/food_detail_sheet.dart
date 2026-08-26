@@ -68,6 +68,20 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
   }
 
   void _addToCart() {
+    // Enforce required option groups before adding.
+    final missing = <String>[];
+    for (final group in widget.food.options) {
+      if (group.isRequired && (_selected[group.groupName]?.isEmpty ?? true)) {
+        missing.add(group.groupName);
+      }
+    }
+    if (missing.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Please choose: ${missing.join(", ")}')),
+      );
+      return;
+    }
+
     final cartProvider = context.read<CartProvider>();
     final conflict = cartProvider.addItem(
       foodItem: widget.food,
@@ -134,9 +148,11 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
                   controller: scrollController,
                   padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
                   children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(AppRadius.md),
-                      child: const PlaceholderImage(height: 160, icon: Icons.fastfood),
+                    RemoteImage(
+                      url: widget.food.imageUrl,
+                      height: 160,
+                      icon: Icons.fastfood,
+                      borderRadius: AppRadius.md,
                     ),
                     const SizedBox(height: 16),
                     Text(widget.food.name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
@@ -154,6 +170,10 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
                           if (group.isRequired) ...[
                             const SizedBox(width: 6),
                             const Text('(Required)', style: TextStyle(color: AppColors.danger, fontSize: 11)),
+                          ],
+                          if (!group.allowMultiple) ...[
+                            const SizedBox(width: 6),
+                            const Text('(choose one)', style: TextStyle(color: AppColors.textSecondary, fontSize: 11)),
                           ],
                         ],
                       ),

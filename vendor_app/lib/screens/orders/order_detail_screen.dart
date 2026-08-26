@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../models/order.dart';
+import '../../providers/chat_provider.dart';
 import '../../providers/order_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/status_badge.dart';
@@ -12,14 +13,42 @@ class OrderDetailScreen extends StatelessWidget {
   final String orderId;
   const OrderDetailScreen({super.key, required this.orderId});
 
-  static const _flow = [
-    OrderStatus.pending,
-    OrderStatus.accepted,
-    OrderStatus.preparing,
-    OrderStatus.ready,
-    OrderStatus.outForDelivery,
-    OrderStatus.delivered,
-  ];
+  static List<OrderStatus> _flowFor(FulfillmentType type) => [
+        OrderStatus.pending,
+        OrderStatus.accepted,
+        OrderStatus.preparing,
+        OrderStatus.ready,
+        if (type != FulfillmentType.pickup) OrderStatus.outForDelivery,
+        OrderStatus.delivered,
+      ];
+
+  /// Opens the conversation for this order (threads come from
+  /// GET /chats/vendor and carry the matching order_id).
+  Future<void> _openChat(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final chat = context.read<ChatProvider>();
+    VendorChatThread? find() {
+      for (final t in chat.threads) {
+        if (t.orderId == orderId) return t;
+      }
+      return null;
+    }
+
+    var thread = find();
+    if (thread == null) {
+      await chat.loadThreads();
+      thread = find();
+    }
+    final resolved = thread;
+    if (resolved == null) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('No conversation yet — the customer can start one from their order')));
+      return;
+    }
+    if (!context.mounted) return;
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => ChatScreen(threadId: resolved.id)));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -30,19 +59,17 @@ class OrderDetailScreen extends StatelessWidget {
       return const Scaffold(body: Center(child: Text('Order not found')));
     }
 
-    final currentIndex = _flow.indexOf(order.status);
+    final flow = _flowFor(order.fulfillmentType);
+    final currentIndex =
+        order.status == OrderStatus.cancelled ? -1 : flow.indexOf(order.status);
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(order.id),
+        title: Text(order.orderNumber.isNotEmpty ? order.orderNumber : 'Order'),
         actions: [
           IconButton(
             icon: const Icon(Icons.chat_bubble_outline),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => ChatScreen(customerName: order.customerName, orderId: order.id),
-              ),
-            ),
+            onPressed: () => _openChat(context),
           ),
         ],
       ),
@@ -59,7 +86,7 @@ class OrderDetailScreen extends StatelessWidget {
             ),
             const SizedBox(height: 14),
             if (order.status != OrderStatus.cancelled)
-              _StatusStepper(currentIndex: currentIndex, flow: _flow),
+              _StatusStepper(currentIndex: currentIndex, flow: flow),
             const SizedBox(height: 24),
             _sectionCard(
               title: 'Customer',
@@ -181,7 +208,10 @@ class OrderDetailScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 24),
-            if (order.status == OrderStatus.ready)
+            // Delivery flows only: pickup orders go straight
+            // ready → completed via the generic button below.
+            if (order.status == OrderStatus.ready &&
+                order.fulfillmentType != FulfillmentType.pickup)
               ElevatedButton.icon(
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => DeliveryTrackingScreen(orderId: order.id)),
@@ -197,10 +227,11 @@ class OrderDetailScreen extends StatelessWidget {
                 icon: const Icon(Icons.map_outlined),
                 label: const Text('View Live Tracking'),
               )
-            else if (order.status.next != null)
+            else if (order.status.nextFor(order.fulfillmentType) != null)
               ElevatedButton(
                 onPressed: () => orderProvider.advanceStatus(order.id),
-                child: Text('Mark as ${order.status.next!.label}'),
+                child: Text(
+                    'Mark as ${order.status.nextFor(order.fulfillmentType)!.label}'),
               ),
           ],
         ),

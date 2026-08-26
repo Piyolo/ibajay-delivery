@@ -9,6 +9,6 @@ import '../models/vendor.dart';
 /// `/api/v1/vendors/{id}` instead, and swap the single line in
 /// `VendorProvider`'s constructor — nothing else in the app needs to change.
 abstract class VendorRepository {
-  Future<List<VendorProfile>> fetchVendors();
+  Future<List<VendorProfile>> fetchVendors({double? refLat, double? refLng});
   Future<List<VendorReview>> fetchReviews(String vendorId);
 }

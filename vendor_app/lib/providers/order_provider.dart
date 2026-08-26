@@ -65,7 +65,39 @@ class OrderProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Live sales analytics for the dashboard (`GET /vendor/me/analytics`).
+  Future<Map<String, dynamic>> fetchAnalytics() async {
+    try {
+      return await _api.getAnalytics();
+    } on StoreApiException catch (e) {
+      lastError = e.message;
+      notifyListeners();
+      rethrow;
+    }
+  }
+
   Future<void> acceptOrder(String id) => _setStatus(id, OrderStatus.accepted);
+
+  /// POST /tracking/{id}/start: the backend flips the order to
+  /// out_for_delivery and broadcasts to the customer's tracking channel.
+  /// Rethrows so callers never begin GPS streaming for a delivery the
+  /// backend did not actually start.
+  Future<void> startDelivery(String id) async {
+    await _api.startDelivery(id);
+    _applyLocal(id, OrderStatus.outForDelivery);
+  }
+
+  /// Streams the device position to the backend every few seconds.
+  Future<void> sendGpsPing(String id,
+      {required double latitude, required double longitude}) async {
+    try {
+      await _api.sendGpsPing(id, latitude: latitude, longitude: longitude);
+      lastError = null;
+    } on StoreApiException catch (e) {
+      lastError = e.message;
+    }
+    notifyListeners();
+  }
 
   Future<void> rejectOrder(String id) =>
       _api.cancelOrder(id, 'Rejected by store').then((_) => _applyLocal(id, OrderStatus.cancelled))
@@ -77,7 +109,7 @@ class OrderProvider extends ChangeNotifier {
   Future<void> advanceStatus(String id) async {
     final order = findById(id);
     if (order == null) return;
-    final next = order.status.next;
+    final next = order.status.nextFor(order.fulfillmentType);
     if (next != null) await _setStatus(id, next);
   }
 

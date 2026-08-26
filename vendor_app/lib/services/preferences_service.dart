@@ -1,12 +1,8 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Thin async wrapper around SharedPreferences for the vendor app's
-/// locally-persisted state (session, store profile and every store
-/// configuration screen).
-///
-/// During the mock stage this stands in for the backend; when the FastAPI
-/// API is connected, swap call sites for real requests and keep this only
-/// for the auth token cache.
+/// locally-persisted state: the auth session tokens plus a cached store
+/// profile and setup flag so splash routing works offline.
 class PreferencesService {
   PreferencesService._();
 

@@ -45,47 +45,73 @@ function FoodCard({ item, index }: { item: DemoFood; index: number }) {
       viewport={{ once: true, margin: '-60px' }}
       transition={{ duration: 0.55, delay: index * 0.08 }}
       whileHover={{ y: -5, rotate: index % 2 ? 0.8 : -0.8 }}
-      className="pointer-events-auto w-40 rounded-2xl border border-white/10 bg-ink-card/95 p-3 shadow-xl shadow-black/50 backdrop-blur-sm"
+      className="pointer-events-auto w-40 overflow-hidden rounded-2xl border border-white/10 bg-ink-card/95 shadow-xl shadow-black/50 backdrop-blur-sm"
     >
-      <div className="flex items-start justify-between">
-        <span className="text-2xl" aria-hidden>
+      {/* photo block leads — food is the hero */}
+      <div
+        className="flex h-20 items-center justify-center"
+        style={{ background: `linear-gradient(135deg, ${item.tint}40, #FFB84522)` }}
+      >
+        <span className="text-4xl drop-shadow-lg" aria-hidden>
           {item.emoji}
         </span>
-        <SampleTag />
       </div>
-      <p className="mt-2 text-sm font-bold leading-tight" style={{ color: item.tint }}>
-        {item.name}
-      </p>
-      <p className="text-[11px] text-white/45">{item.store}</p>
-      <p className="mt-1 font-mono text-xs text-white/70">{item.price}</p>
+      <div className="p-3 pt-2">
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-sm font-bold leading-tight text-cream">{item.name}</p>
+          <SampleTag />
+        </div>
+        <div className="mt-1 flex items-center justify-between">
+          <p className="text-[11px] text-white/45">{item.store}</p>
+          <p className="font-mono text-xs font-bold" style={{ color: item.tint }}>{item.price.split(' ')[0]}</p>
+        </div>
+      </div>
     </motion.div>
   )
 }
 
-function VendorChip({ vendor, index }: { vendor: DemoVendor; index: number }) {
+function VendorStorefront({ vendor, index }: { vendor: DemoVendor; index: number }) {
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.9 }}
-      whileInView={{ opacity: 1, scale: 1 }}
+      initial={{ opacity: 0, x: 40 }}
+      whileInView={{ opacity: 1, x: 0 }}
       viewport={{ once: true, margin: '-40px' }}
-      transition={{ duration: 0.5, delay: 0.15 + index * 0.07 }}
+      transition={{ duration: 0.55, delay: 0.15 + index * 0.09 }}
       whileHover={{ y: -4 }}
-      className="pointer-events-auto flex items-center gap-2.5 rounded-full border border-white/10 bg-ink-card/95 py-1.5 pl-2 pr-4 shadow-lg shadow-black/50 backdrop-blur-sm"
+      className="pointer-events-auto w-52 overflow-hidden rounded-2xl border border-white/10 bg-ink-card/95 shadow-xl shadow-black/50 backdrop-blur-sm"
     >
-      <span
-        className="flex h-8 w-8 items-center justify-center rounded-full text-base"
-        style={{ backgroundColor: `${vendor.tint}26`, border: `1px solid ${vendor.tint}55` }}
-        aria-hidden
+      {/* storefront banner */}
+      <div
+        className="relative flex h-14 items-center gap-2 px-3"
+        style={{ background: `linear-gradient(120deg, ${vendor.tint}55, ${vendor.tint}18)` }}
       >
-        {vendor.emoji}
-      </span>
-      <span>
-        <span className="block text-xs font-bold leading-none">{vendor.kind}</span>
-        <span className="mt-1 flex items-center gap-1.5 text-[10px] leading-none text-white/45">
-          {vendor.mode === 'delivery' ? '🛵 offers delivery' : '🚶 pickup'}
+        <span
+          className="flex h-9 w-9 items-center justify-center rounded-xl bg-black/30 text-xl"
+          aria-hidden
+        >
+          {vendor.emoji}
         </span>
-      </span>
-      <SampleTag />
+        <div className="min-w-0">
+          <p className="truncate text-sm font-bold leading-tight text-cream">{vendor.kind}</p>
+          <p className="flex items-center gap-1 truncate text-[10px] leading-none text-white/50">
+            {vendor.mode === 'delivery' ? '🛵 delivery · pickup' : '🚶 pickup'}
+          </p>
+        </div>
+        <SampleTag className="ml-auto shrink-0" />
+      </div>
+      {/* mini menu preview */}
+      <div className="space-y-1 px-3 py-2">
+        <p className="text-[9px] font-semibold uppercase tracking-widest text-white/35">Menu preview</p>
+        {vendor.menu.map(([name, price]) => (
+          <div key={name} className="flex items-baseline justify-between gap-2">
+            <span className="truncate text-[11px] text-white/70">{name}</span>
+            <span className="shrink-0 font-mono text-[10px] font-semibold" style={{ color: vendor.tint }}>
+              {price}
+            </span>
+          </div>
+        ))}
+        <p className="pt-0.5 text-[9px] italic text-white/35">{vendor.blurb}</p>
+      </div>
     </motion.div>
   )
 }
@@ -181,11 +207,11 @@ export default function MarketplaceScene() {
   const stageFulfill = useTransform(p, [0.44, 0.58, 0.86, 1], [0.25, 0.25, 1, 1])
 
   const stages = [
-    { label: 'Customer discovers a store', icon: '👀', opacity: stageDiscover },
-    { label: 'Order sent to the vendor', icon: '📩', opacity: stageOrder },
-    { label: 'Kitchen prepares it', icon: '🍳', opacity: stagePrepare },
-    { label: 'Pickup or vendor delivery', icon: '🛵', opacity: stageFulfill },
-  ]
+      { label: 'Customer discovers a vendor', icon: '👀', opacity: stageDiscover },
+      { label: 'Views the menu, builds an order', icon: '📖', opacity: stageOrder },
+      { label: 'Vendor prepares it', icon: '🍳', opacity: stagePrepare },
+      { label: 'Pickup or vendor delivery', icon: '🛵', opacity: stageFulfill },
+    ]
 
   return (
     <section id="marketplace" ref={ref} className="relative z-10" style={{ height: reduce ? 'auto' : SECTION_HEIGHT }}>
@@ -246,7 +272,7 @@ export default function MarketplaceScene() {
 
         {/* ---- foreground: food cards (left cluster) + vendor chips (right) ---- */}
         <motion.div style={{ y: reduce ? undefined : fgY }} className="pointer-events-none absolute inset-x-0 top-[16%] px-6 lg:px-14">
-          <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[1fr_auto]">
+          <div className="mx-auto grid max-w-[88rem] gap-10 lg:grid-cols-[1fr_auto]">
             {/* food column */}
             <div>
               <p className="mb-4 flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.25em] text-white/40">
@@ -286,7 +312,7 @@ export default function MarketplaceScene() {
                 Kinds of stores you'll find <SampleTag />
               </p>
               {DEMO_VENDORS.map((v, i) => (
-                <VendorChip key={v.kind} vendor={v} index={i} />
+                <VendorStorefront key={v.kind} vendor={v} index={i} />
               ))}
             </div>
           </div>

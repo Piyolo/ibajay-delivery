@@ -2,6 +2,7 @@ import { motion, useMotionValue, useSpring, useTransform } from 'framer-motion'
 import type { MouseEvent } from 'react'
 import PhoneFrame from './PhoneFrame'
 import { CustomerHome } from '../screens'
+import { HeroFoodCards, HeroStorefronts, HeroActivityToast } from './HeroMarketplace'
 
 const container = {
   hidden: {},
@@ -35,6 +36,9 @@ export default function Hero() {
       onMouseMove={onMove}
       className="relative z-10 flex min-h-screen items-center overflow-hidden pt-28 pb-16"
     >
+      <HeroStorefronts />
+      <HeroActivityToast />
+
       <div className="mx-auto grid w-full max-w-6xl items-center gap-14 px-6 lg:grid-cols-[1.15fr_0.85fr]">
         <motion.div variants={container} initial="hidden" animate="show" className="text-center lg:text-left">
           <motion.div variants={rise} className="mb-6 inline-flex items-center gap-2.5 rounded-full glass px-4 py-2">
@@ -95,6 +99,11 @@ export default function Hero() {
               <span className="h-1.5 w-1.5 rounded-full bg-moss-bright" /> Made in Ibajay, for Ibajay
             </span>
           </motion.div>
+
+          {/* food showcase strip (mobile/tablet) */}
+          <motion.div variants={rise} className="lg:hidden">
+            <HeroFoodCards />
+          </motion.div>
         </motion.div>
 
         {/* hero phone */}
@@ -112,29 +121,8 @@ export default function Hero() {
               </PhoneFrame>
             </motion.div>
 
-            {/* floating chips */}
-            <motion.div
-              style={{ x: cardShiftX }}
-              className="absolute -left-24 top-16 animate-float"
-            >
-              <div className="glass rounded-2xl px-4 py-3 shadow-xl">
-                <p className="text-[10px] uppercase tracking-wider text-white/50">Order status</p>
-                <p className="mt-0.5 flex items-center gap-1.5 text-sm font-bold">
-                  <span className="h-2 w-2 rounded-full bg-moss-bright animate-pulse-glow" />
-                  Out for delivery
-                </p>
-              </div>
-            </motion.div>
-
-            <motion.div
-              style={{ x: useTransform(cardShiftX, (v) => -v) }}
-              className="absolute -right-20 bottom-20 animate-float"
-            >
-              <div className="glass rounded-2xl px-4 py-3 shadow-xl">
-                <p className="text-[10px] uppercase tracking-wider text-white/50">Sample storefront</p>
-                <p className="mt-0.5 text-sm font-bold text-gold">Your carinderia, listed here</p>
-              </div>
-            </motion.div>
+            {/* floating food cards — food is the hero, not the phone */}
+            <HeroFoodCards shiftX={cardShiftX} />
           </div>
         </motion.div>
       </div>

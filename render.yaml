@@ -1,0 +1,34 @@
+# Render blueprint — repo root level so Render's Blueprint deploy can find it.
+# Deploys the FastAPI backend from the backend/ subfolder.
+#
+# Env vars marked `sync: false` must be filled in the Render dashboard on first deploy:
+#   DATABASE_URL           — Neon connection string
+#   RESEND_API_KEY         — Resend API key (for waitlist + OTP emails)
+#   WAITLIST_NOTIFY_EMAIL  — your email for signup alerts
+
+services:
+  - type: web
+    name: ibajayeats-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    region: singapore
+    plan: free
+    healthCheckPath: /health
+    autoDeploy: true
+    branch: website-redesign
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: ENVIRONMENT
+        value: production
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        value: no-reply@ibajayeats.linkpc.net
+      - key: WAITLIST_NOTIFY_EMAIL
+        sync: false
+      - key: CORS_ORIGINS
+        value: '["https://ibajay-delivery.vercel.app","https://ibajayeatswebsite.onrender.com"]'

@@ -41,12 +41,12 @@ export default function Hero() {
 
       <div className="mx-auto grid w-full max-w-6xl items-center gap-14 px-6 lg:grid-cols-[1.15fr_0.85fr]">
         <motion.div variants={container} initial="hidden" animate="show" className="text-center lg:text-left">
-          <motion.div variants={rise} className="mb-6 inline-flex items-center gap-2.5 rounded-full glass px-4 py-2">
+          <motion.div variants={rise} className="mb-6 inline-flex max-w-full items-center gap-2 rounded-full glass px-3 py-2 sm:gap-2.5 sm:px-4">
             <span className="relative flex h-2 w-2">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-ember opacity-75" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-ember" />
             </span>
-            <span className="text-xs font-medium tracking-wide text-white/80">
+            <span className="text-[11px] font-medium leading-snug tracking-wide text-white/80 sm:text-xs">
               Pre-launch beta · Built for Ibajay, Aklan
             </span>
           </motion.div>
@@ -69,17 +69,17 @@ export default function Hero() {
             the vendor deliver — all in one place made by locals, for locals.
           </motion.p>
 
-          <motion.div variants={rise} className="mt-9 flex flex-wrap items-center justify-center gap-4 lg:justify-start">
+          <motion.div variants={rise} className="mt-9 flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-center sm:gap-4 lg:justify-start">
             <a
               href="#customer"
-              className="group relative overflow-hidden rounded-full bg-gradient-to-r from-ember to-ember-dark px-8 py-4 text-sm font-semibold text-white transition-all duration-300 hover:-translate-y-0.5 hover:shadow-glow"
+              className="group relative overflow-hidden rounded-full bg-gradient-to-r from-ember to-ember-dark px-7 py-4 text-center text-sm font-semibold text-white transition-all duration-300 hover:-translate-y-0.5 hover:shadow-glow sm:px-8"
             >
               <span className="relative z-10">Discover local food</span>
               <span className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/25 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
             </a>
             <a
               href="#vendor"
-              className="rounded-full border border-white/15 bg-white/[0.03] px-8 py-4 text-sm font-semibold text-white/85 backdrop-blur transition-all duration-300 hover:border-moss-bright/50 hover:bg-moss/15 hover:text-white"
+              className="rounded-full border border-white/15 bg-white/[0.03] px-7 py-4 text-center text-sm font-semibold text-white/85 backdrop-blur transition-all duration-300 hover:border-moss-bright/50 hover:bg-moss/15 hover:text-white sm:px-8"
             >
               Run a local business?
             </a>

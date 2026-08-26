@@ -29,26 +29,49 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _prepareAndNavigate() async {
-    // Restore locally-persisted state (session, addresses, favorites,
-    // preferences) and load vendor/menu/review data, holding the splash
-    // for at least a beat so the logo doesn't just flash.
+    // Restore locally-persisted state (session, preferences) first,
+    // holding the splash for at least a beat so the logo doesn't just
+    // flash. Vendor loading never throws — a failure surfaces on Home with
+    // a retry button instead of hanging here.
+    final auth = context.read<AuthProvider>();
+    final location = context.read<LocationProvider>();
+    final vendors = context.read<VendorProvider>();
     final minimumDisplay = Future.delayed(const Duration(milliseconds: 1200));
-    final dataLoad = context.read<VendorProvider>().load();
-    final restores = Future.wait([
-      context.read<AuthProvider>().restoreSession(),
-      context.read<LocationProvider>().restore(),
-      context.read<FavoritesProvider>().restore(),
+    await Future.wait([
+      minimumDisplay,
+      auth.restoreSession(),
       context.read<AppPreferencesProvider>().restore(),
     ]);
-    await Future.wait([minimumDisplay, dataLoad, restores]);
-    if (mounted) _navigate();
+    if (!mounted) return;
+
+    // Bind per-user data to the signed-in account (or clear it when
+    // signed out), then pull the authoritative address list.
+    if (auth.status == AuthStatus.signedIn && auth.currentUser?.id.isNotEmpty == true) {
+      final uid = auth.currentUser!.id;
+      await Future.wait([
+        location.attachUser(uid),
+        context.read<FavoritesProvider>().attachUser(uid),
+      ]);
+    } else {
+      location.detachUser();
+      context.read<FavoritesProvider>().detachUser();
+    }
+
+    await vendors.load(refLat: location.referenceLat, refLng: location.referenceLng);
+    if (!mounted) return;
+    _navigate();
   }
 
   void _navigate() {
     final auth = context.read<AuthProvider>();
+    final location = context.read<LocationProvider>();
     Widget next;
     if (auth.status == AuthStatus.signedIn) {
-      next = auth.hasSavedLocation ? const MainShell() : const LocationSetupScreen();
+      // A user who already saved an address (locally or on the server)
+      // goes straight in; only genuinely-new accounts see setup again.
+      final hasLocation =
+          location.addresses.isNotEmpty || auth.hasSavedLocation;
+      next = hasLocation ? const MainShell() : const LocationSetupScreen();
     } else {
       next = const LandingScreen();
     }
@@ -58,7 +81,7 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.background,
       body: Center(
         child: TweenAnimationBuilder<double>(
           tween: Tween(begin: 0.0, end: 1.0),

@@ -21,6 +21,10 @@ class VendorProvider extends ChangeNotifier {
   bool _isLoading = false;
   bool _isLoaded = false;
 
+  /// Error from the last failed load (shown by the Home screen with a
+  /// retry button). Null after a successful load.
+  String? lastError;
+
   bool get isLoading => _isLoading;
   bool get isLoaded => _isLoaded;
 
@@ -31,23 +35,38 @@ class VendorProvider extends ChangeNotifier {
   bool filterPickupAvailable = false;
   bool filterScheduledAvailable = false;
 
-  /// Called once at app startup (see SplashScreen) before any screen that
-  /// needs vendor data is shown. Safe to call more than once — subsequent
-  /// calls are a no-op once loaded.
-  Future<void> load() async {
+  /// Loads vendor data once at app startup (see SplashScreen) before any
+  /// screen that needs it is shown. Never throws: a failed load leaves
+  /// the app browsable (empty list) and reports via [lastError] instead
+  /// of hanging the splash forever. Passes the customer's reference point
+  /// so the backend ranks stores by real distance.
+  Future<void> load({double? refLat, double? refLng}) async {
     if (_isLoaded || _isLoading) return;
     _isLoading = true;
+    lastError = null;
     notifyListeners();
 
-    _vendors = await _repository.fetchVendors();
-    final reviewEntries = await Future.wait(
-      _vendors.map((v) async => MapEntry(v.id, await _repository.fetchReviews(v.id))),
-    );
-    _reviewsByVendor = Map.fromEntries(reviewEntries);
+    try {
+      _vendors = await _repository.fetchVendors(refLat: refLat, refLng: refLng);
+      final reviewEntries = await Future.wait(
+        _vendors.map((v) async => MapEntry(v.id, await _repository.fetchReviews(v.id))),
+      );
+      _reviewsByVendor = Map.fromEntries(reviewEntries);
+      _isLoaded = true;
+    } catch (error) {
+      // Transport/HTTP failure: surface it, keep any previous data, and
+      // let [reload] try again later.
+      lastError = error.toString();
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
 
-    _isLoading = false;
-    _isLoaded = true;
-    notifyListeners();
+  /// Forces a fresh fetch (retry button / pull-to-refresh).
+  Future<void> reload({double? refLat, double? refLng}) async {
+    _isLoaded = false;
+    await load(refLat: refLat, refLng: refLng);
   }
 
   List<VendorProfile> get allVendors => _vendors;

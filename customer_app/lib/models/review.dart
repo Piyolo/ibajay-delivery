@@ -17,6 +17,20 @@ class VendorReview {
     this.vendorResponse,
   }) : photoUrls = photoUrls ?? [];
 
+  /// Maps the backend's review payload (GET /vendors/{id}/reviews).
+  factory VendorReview.fromApi(Map<String, dynamic> json) {
+    return VendorReview(
+      id: json['id'] as String? ?? '',
+      customerName: json['customer_name'] as String? ?? 'Anonymous',
+      stars: (json['stars'] as num?)?.toInt() ?? 5,
+      comment: json['comment'] as String? ?? '',
+      createdAt:
+          DateTime.tryParse(json['created_at'] as String? ?? '')?.toLocal() ?? DateTime.now(),
+      vendorResponse: json['vendor_response'] as String?,
+    );
+  }
+
+  /// Offline mock-asset payload (camelCase, relative recency).
   factory VendorReview.fromJson(Map<String, dynamic> json) {
     final daysAgo = (json['daysAgo'] as num?)?.toInt() ?? 0;
     return VendorReview(

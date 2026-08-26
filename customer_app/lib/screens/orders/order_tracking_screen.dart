@@ -4,35 +4,136 @@ import '../../models/order.dart';
 import '../../providers/chat_provider.dart';
 import '../../providers/order_provider.dart';
 import '../../providers/vendor_provider.dart';
+import '../../services/api_client.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/status_badge.dart';
 import '../chat/chat_screen.dart';
 
-class OrderTrackingScreen extends StatelessWidget {
+class OrderTrackingScreen extends StatefulWidget {
   final String orderId;
   const OrderTrackingScreen({super.key, required this.orderId});
 
-  static const _steps = [
-    OrderStatus.pending,
-    OrderStatus.accepted,
-    OrderStatus.preparing,
-    OrderStatus.ready,
-    OrderStatus.outForDelivery,
-    OrderStatus.delivered,
-  ];
+  @override
+  State<OrderTrackingScreen> createState() => _OrderTrackingScreenState();
+}
+
+class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
+  // Captured for dispose(), where inherited lookups are no longer allowed.
+  late final OrderProvider _orders = context.read<OrderProvider>();
+
+  bool? _alreadyReviewed;
+
+  @override
+  void initState() {
+    super.initState();
+    // Deep-opened or freshly restored session: fetch from the API if the
+    // order isn't already in memory. Live tracking starts only once the
+    // fetched/known status is actually out_for_delivery.
+    final existing = _orders.byId(widget.orderId);
+    if (existing == null) {
+      _orders.refreshOrder(widget.orderId).then((fresh) {
+        if (fresh?.status == OrderStatus.outForDelivery) {
+          _orders.watchOrder(widget.orderId);
+        }
+      });
+    } else {
+      _orders.watchOrder(widget.orderId);
+    }
+    _checkReviewed();
+  }
+
+  Future<void> _checkReviewed() async {
+    try {
+      final reviewed = await _orders.hasReview(widget.orderId);
+      if (mounted) setState(() => _alreadyReviewed = reviewed);
+    } catch (_) {
+      // Unknown state — assume unreviewed; the backend rejects duplicates.
+      if (mounted) setState(() => _alreadyReviewed = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    _orders.stopWatching();
+    super.dispose();
+  }
+
+  Future<void> _cancelOrder(CustomerOrder order) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Cancel this order?'),
+        content: const Text(
+          'The store will be notified and your order will no longer be prepared. '
+          'This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Keep Order'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+            child: const Text('Cancel Order'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await context.read<OrderProvider>().cancelOrder(order.id, 'Cancelled by customer');
+      messenger.showSnackBar(const SnackBar(content: Text('Your order was cancelled')));
+    } on ApiException catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      messenger.showSnackBar(
+          const SnackBar(content: Text('Could not cancel the order — please try again')));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final order = context.watch<OrderProvider>().byId(orderId);
+    final orderProvider = context.watch<OrderProvider>();
+    final order = orderProvider.byId(widget.orderId);
     if (order == null) {
-      return const Scaffold(body: Center(child: Text('Order not found')));
+      return Scaffold(
+        appBar: AppBar(),
+        body: Center(
+          child: orderProvider.lastError != null
+              ? Text(orderProvider.lastError!)
+              : const CircularProgressIndicator(),
+        ),
+      );
     }
     final vendor = context.watch<VendorProvider>().vendorById(order.vendorId);
 
-    final relevantSteps = order.fulfillmentType == FulfillmentType.pickup
-        ? _steps.where((s) => s != OrderStatus.outForDelivery).toList()
-        : _steps;
-    final currentIndex = relevantSteps.indexOf(order.status).clamp(0, relevantSteps.length - 1);
+    // Pickup skips the rider flow entirely and uses its own labels
+    // (Ready for Pickup → Picked Up); cancelled/completed map to the end of
+    // the flow instead of resetting the stepper to step 0.
+    final isPickup = order.fulfillmentType == FulfillmentType.pickup;
+    final allSteps = [
+      OrderStatus.pending,
+      OrderStatus.accepted,
+      OrderStatus.preparing,
+      OrderStatus.ready,
+      if (!isPickup) OrderStatus.outForDelivery,
+      OrderStatus.delivered,
+    ];
+    String stepLabel(OrderStatus s) {
+      if (isPickup && s == OrderStatus.ready) return 'Ready for Pickup';
+      if (isPickup && s == OrderStatus.delivered) return 'Picked Up';
+      return s.label;
+    }
+
+    final currentIndex = order.status == OrderStatus.cancelled
+        ? -1
+        : switch (order.status) {
+            OrderStatus.completed => allSteps.length - 1,
+            _ => allSteps.indexOf(order.status),
+          };
 
     return Scaffold(
       appBar: AppBar(
@@ -42,10 +143,19 @@ class OrderTrackingScreen extends StatelessWidget {
             icon: const Icon(Icons.chat_bubble_outline),
             onPressed: vendor == null
                 ? null
-                : () {
-                    final thread = context.read<ChatProvider>().getOrCreateThread(vendor, orderId: order.id);
-                    Navigator.of(context)
-                        .push(MaterialPageRoute(builder: (_) => ChatScreen(threadId: thread.id)));
+                : () async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    try {
+                      final thread = await context
+                          .read<ChatProvider>()
+                          .getOrCreateThread(vendor, orderId: order.id);
+                      if (!context.mounted) return;
+                      Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => ChatScreen(threadId: thread.id)));
+                    } catch (_) {
+                      messenger.showSnackBar(const SnackBar(
+                          content: Text('Could not open the chat — try again')));
+                    }
                   },
           ),
         ],
@@ -56,21 +166,22 @@ class OrderTrackingScreen extends StatelessWidget {
           if (order.status == OrderStatus.cancelled)
             Card(
               color: AppColors.danger.withValues(alpha: 0.06),
-              child: const Padding(
-                padding: EdgeInsets.all(14),
+              child: Padding(
+                padding: const EdgeInsets.all(14),
                 child: Row(
                   children: [
-                    Icon(Icons.cancel, color: AppColors.danger),
-                    SizedBox(width: 10),
-                    Expanded(child: Text('This order was cancelled.')),
+                    const Icon(Icons.cancel, color: AppColors.danger),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(order.cancellationReason.isEmpty
+                          ? 'This order was cancelled.'
+                          : 'This order was cancelled — ${order.cancellationReason}'),
+                    ),
                   ],
                 ),
               ),
             )
           else ...[
-            // Map placeholder — swap for a GoogleMap widget showing vendor
-            // location + live rider marker once google_maps_flutter is wired
-            // to the /ws/orders/{id}/track WebSocket.
             ClipRRect(
               borderRadius: BorderRadius.circular(AppRadius.lg),
               child: Container(
@@ -83,15 +194,31 @@ class OrderTrackingScreen extends StatelessWidget {
                     if (order.status == OrderStatus.outForDelivery)
                       Positioned(
                         bottom: 12,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: AppColors.primary,
-                            borderRadius: BorderRadius.circular(AppRadius.pill),
-                          ),
-                          child: const Text(
-                            'Vendor is on the way',
-                            style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+                        left: 12,
+                        right: 12,
+                        child: GestureDetector(
+                          onTap: orderProvider.trackingError != null
+                              ? () => orderProvider.watchOrder(order.id)
+                              : null,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: orderProvider.trackingError != null
+                                  ? AppColors.warning
+                                  : AppColors.primary,
+                              borderRadius: BorderRadius.circular(AppRadius.pill),
+                            ),
+                            child: Text(
+                              orderProvider.trackingError ??
+                                  (orderProvider.riderLat != null
+                                      ? 'Live location · ${orderProvider.riderLat!.toStringAsFixed(4)}, ${orderProvider.riderLng!.toStringAsFixed(4)}'
+                                      : 'Your order is on the way'),
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600),
+                            ),
                           ),
                         ),
                       ),
@@ -103,16 +230,19 @@ class OrderTrackingScreen extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(order.vendorName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+                Expanded(
+                  child: Text(order.vendorName,
+                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+                ),
                 StatusBadge(status: order.status),
               ],
             ),
             const SizedBox(height: 16),
-            for (int i = 0; i < relevantSteps.length; i++)
+            for (int i = 0; i < allSteps.length; i++)
               _StepRow(
-                label: relevantSteps[i].label,
+                label: stepLabel(allSteps[i]),
                 isDone: i <= currentIndex,
-                isLast: i == relevantSteps.length - 1,
+                isLast: i == allSteps.length - 1,
               ),
             const SizedBox(height: 20),
           ],
@@ -144,9 +274,14 @@ class OrderTrackingScreen extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 10),
+                  if (order.scheduledFor != null)
+                    Text(
+                      'Scheduled for ${order.scheduledFor!.toLocal()}'.split('.').first,
+                      style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                    ),
                   Text(
                     order.fulfillmentType == FulfillmentType.pickup
-                        ? 'Pickup at ${order.deliveryAddress}'
+                        ? 'Pickup at ${vendor?.address ?? order.deliveryAddress}'
                         : 'Deliver to ${order.deliveryAddress}',
                     style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
                   ),
@@ -156,44 +291,89 @@ class OrderTrackingScreen extends StatelessWidget {
               ),
             ),
           ),
-          if (order.isActive) ...[
+          if (order.isActive && order.status != OrderStatus.outForDelivery) ...[
             const SizedBox(height: 16),
             OutlinedButton(
-              onPressed: () => _confirmCancel(context),
+              onPressed: () => _cancelOrder(order),
               style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger),
               child: const Text('Cancel Order'),
             ),
           ],
+          // Rate the order once it's done — one review per completed order.
+          if ((order.status == OrderStatus.delivered ||
+                  order.status == OrderStatus.completed) &&
+              _alreadyReviewed == false)
+            Padding(
+              padding: const EdgeInsets.only(top: 16),
+              child: ElevatedButton.icon(
+                onPressed: () => _leaveReview(order),
+                icon: const Icon(Icons.star_rounded),
+                label: const Text('Rate this order'),
+              ),
+            ),
         ],
       ),
     );
   }
 
-  Future<void> _confirmCancel(BuildContext context) async {
+  Future<void> _leaveReview(CustomerOrder order) async {
+    int stars = 5;
+    final commentController = TextEditingController();
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Cancel this order?'),
-        content: const Text(
-          'The store will be notified and your order will no longer be prepared. '
-          'This cannot be undone.',
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: Text('Rate ${order.vendorName}'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  for (int i = 1; i <= 5; i++)
+                    IconButton(
+                      icon: Icon(
+                        i <= stars ? Icons.star_rounded : Icons.star_outline_rounded,
+                        color: AppColors.warning,
+                        size: 34,
+                      ),
+                      onPressed: () => setDialogState(() => stars = i),
+                    ),
+                ],
+              ),
+              TextField(
+                controller: commentController,
+                maxLines: 3,
+                maxLength: 500,
+                decoration:
+                    const InputDecoration(hintText: 'Share your experience (optional)'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Submit Review'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Keep Order'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
-            child: const Text('Cancel Order'),
-          ),
-        ],
       ),
     );
-    if (confirmed != true) return;
-    if (!context.mounted) return;
-    context.read<OrderProvider>().cancelOrder(orderId, 'Cancelled by customer');
+    commentController.dispose();
+    if (confirmed != true || !mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await _orders.submitReview(order.id, stars: stars, comment: commentController.text);
+      if (!mounted) return;
+      setState(() => _alreadyReviewed = true);
+      messenger.showSnackBar(const SnackBar(content: Text('Thanks for your review!')));
+    } on ApiException catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      messenger.showSnackBar(const SnackBar(content: Text('Could not submit your review — try again')));
+    }
   }
 }
 

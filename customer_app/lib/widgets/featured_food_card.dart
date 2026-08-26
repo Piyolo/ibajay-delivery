@@ -23,13 +23,11 @@ class FeaturedFoodCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(AppRadius.md),
-                    child: const PlaceholderImage(
-                      width: double.infinity,
-                      icon: Icons.fastfood,
-                      iconSize: 38,
-                    ),
+                  child: RemoteImage(
+                    url: food.imageUrl,
+                    width: double.infinity,
+                    icon: Icons.fastfood,
+                    borderRadius: AppRadius.md,
                   ),
                 ),
                 const SizedBox(height: 8),

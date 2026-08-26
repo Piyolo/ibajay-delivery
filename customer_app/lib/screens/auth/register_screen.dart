@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../theme/app_theme.dart';
+import 'login_screen.dart';
 import 'otp_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -106,6 +107,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           )
                         : const Text('Continue'),
                   ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text('Already have an account?',
+                        style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                    TextButton(
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const LoginScreen()),
+                      ),
+                      child: const Text('Login instead'),
+                    ),
+                  ],
                 ),
               ],
             ),

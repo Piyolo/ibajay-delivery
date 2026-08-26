@@ -41,12 +41,20 @@ class VendorProvider extends ChangeNotifier {
   final VendorApiService api;
   final AuthApiService _auth;
 
+  /// The shared client (carries the auth token) for services that need
+  /// authenticated requests outside this provider, e.g. chat.
+  ApiClient get client => _client;
+
   late VendorProfile _vendor;
   bool _isAuthenticated = false;
   bool _hasCompletedStoreSetup = false;
   bool _restored = false;
   String? _mobileNumber;
   String? lastAuthError;
+
+  /// Error from the last failed store mutation (settings, hours, status).
+  /// Screens surface this instead of showing false successes.
+  String? lastError;
   bool _isBusy = false;
 
   // In-flight registration state (register form -> OTP -> password -> setup)
@@ -55,6 +63,12 @@ class VendorProvider extends ChangeNotifier {
   String? _pendingMobile;
   String? _pendingStoreName;
   String? _pendingStoreDescription;
+
+  /// Images picked during registration, kept as LOCAL PATHS until the
+  /// account exists — /uploads requires auth, so they can't be uploaded
+  /// pre-registration. [createStore] uploads them once signed in.
+  String? _pendingLogoPath;
+  String? _pendingBannerPath;
 
   VendorProfile get vendor => _vendor;
   bool get isAuthenticated => _isAuthenticated;
@@ -67,6 +81,30 @@ class VendorProvider extends ChangeNotifier {
   String get pendingStoreName => _pendingStoreName ?? '';
   String get pendingStoreDescription => _pendingStoreDescription ?? '';
   String get pendingOwnerName => _pendingOwnerName ?? '';
+
+  /// Uploads a picked image to the backend and returns its public URL.
+  Future<String> uploadImage(String filePath) async {
+    return api.uploadImage(filePath);
+  }
+
+  /// Remembers the logo/banner files picked during registration so
+  /// [createStore] can upload and attach them once the account exists.
+  void setPendingImages({String? logoPath, String? bannerPath}) {
+    if (logoPath != null) _pendingLogoPath = logoPath;
+    if (bannerPath != null) _pendingBannerPath = bannerPath;
+  }
+
+  /// Uploads a picked image and immediately saves it on the store profile.
+  Future<bool> updateStoreImage({required bool isBanner, required String filePath}) async {
+    try {
+      final url = await api.uploadImage(filePath);
+      await updateProfile(logoUrl: isBanner ? null : url, bannerUrl: isBanner ? url : null);
+      return true;
+    } on StoreApiException catch (e) {
+      lastAuthError = e.message;
+      return false;
+    }
+  }
 
   /// Restores the persisted session: validates the stored access token
   /// against /vendor/me (refreshing once if expired) and reloads the live
@@ -133,7 +171,14 @@ class VendorProvider extends ChangeNotifier {
 
   Future<void> _loadStore() async {
     final json = await api.getStore();
-    _vendor = VendorProfile.fromApi(json);
+    final fresh = VendorProfile.fromApi(json);
+    // "Busy" is an app-level nuance the backend doesn't model (it only has
+    // open/paused/closed). Re-apply it when the server still says open so
+    // the status survives reloads.
+    if (_vendor.status == StoreStatus.busy && fresh.status == StoreStatus.open) {
+      fresh.status = StoreStatus.busy;
+    }
+    _vendor = fresh;
     _hasCompletedStoreSetup = true;
     await PreferencesService.setBool(PreferencesService.kSetupDone, true);
     await _persistVendor();
@@ -186,6 +231,10 @@ class VendorProvider extends ChangeNotifier {
     _client.authToken = null;
     await PreferencesService.remove(PreferencesService.kAccessToken);
     await PreferencesService.remove(PreferencesService.kRefreshToken);
+    // Don't leave the store profile / setup flag on the device after
+    // sign-out — the next user shouldn't see this vendor's data.
+    await PreferencesService.remove(PreferencesService.kProfile);
+    await PreferencesService.remove(PreferencesService.kSetupDone);
   }
 
   // ---- Registration (Steps 1-4) + store creation ----
@@ -284,6 +333,8 @@ class VendorProvider extends ChangeNotifier {
     required String storeName,
     required String description,
     required String address,
+    double? latitude,
+    double? longitude,
     required List<String> categories,
     required DeliverySettings delivery,
     required List<OperatingHours> hours,
@@ -292,12 +343,27 @@ class VendorProvider extends ChangeNotifier {
     _isBusy = true;
     notifyListeners();
     try {
+      // Upload registration-time picks now that the request is
+      // authenticated; failures don't block store creation.
+      String? logoUrl = _pendingLogoPath;
+      String? bannerUrl = _pendingBannerPath;
+      if (logoUrl != null && !logoUrl.startsWith('http')) {
+        logoUrl = await api.uploadImage(logoUrl);
+      }
+      if (bannerUrl != null && !bannerUrl.startsWith('http')) {
+        bannerUrl = await api.uploadImage(bannerUrl);
+      }
+
       final dayNames = OperatingHours.defaultWeek().map((h) => h.day).toList();
       await api.createStore({
         'store_name': storeName,
         'description': description.isEmpty ? null : description,
         'address': address,
+        'latitude': latitude ?? kIbajayTownLat,
+        'longitude': longitude ?? kIbajayTownLng,
         'contact_number': _mobileNumber ?? '',
+        'logo_url': logoUrl,
+        'banner_url': bannerUrl,
         'categories': categories,
         'delivery_enabled': delivery.deliveryEnabled,
         'pickup_enabled': delivery.pickupEnabled,
@@ -348,14 +414,8 @@ class VendorProvider extends ChangeNotifier {
     }
   }
 
-  /// Vendors are provisioned with a store (seed/admin-created), so a
-  /// successful login means setup is done. Kept for the splash routing.
-  Future<void> completeStoreSetup() async {
-    _hasCompletedStoreSetup = true;
-    notifyListeners();
-    await PreferencesService.setBool(PreferencesService.kSetupDone, true);
-    await _persistVendor();
-  }
+  /// Vendors are provisioned with a store during registration, so a
+  /// successful login means setup is done.
 
   Future<void> setStoreStatus(StoreStatus status) async {
     _vendor.status = status;
@@ -365,9 +425,14 @@ class VendorProvider extends ChangeNotifier {
         isOpen: status == StoreStatus.open || status == StoreStatus.busy,
         isPaused: status == StoreStatus.paused,
       );
-      _vendor = VendorProfile.fromApi(json);
-    } on StoreApiException {
-      // Reverted on next reload; keep optimistic value meanwhile.
+      final fresh = VendorProfile.fromApi(json);
+      if (status == StoreStatus.busy && fresh.status == StoreStatus.open) {
+        fresh.status = StoreStatus.busy;
+      }
+      _vendor = fresh;
+      lastError = null;
+    } on StoreApiException catch (e) {
+      lastError = e.message;
     }
     notifyListeners();
     await _persistVendor();
@@ -407,8 +472,9 @@ class VendorProvider extends ChangeNotifier {
       try {
         final json = await api.updateStore(body);
         _vendor = VendorProfile.fromApi(json);
-      } on StoreApiException {
-        // Keep optimistic local values; server state wins on next reload.
+        lastError = null;
+      } on StoreApiException catch (e) {
+        lastError = e.message;
       }
     }
     notifyListeners();
@@ -421,8 +487,10 @@ class VendorProvider extends ChangeNotifier {
     try {
       final json = await api.updateCategories(categories);
       _vendor = VendorProfile.fromApi(json);
-    } on StoreApiException {
+      lastError = null;
+    } on StoreApiException catch (e) {
       // keep optimistic value
+      lastError = e.message;
     }
     notifyListeners();
     await _persistVendor();
@@ -437,8 +505,10 @@ class VendorProvider extends ChangeNotifier {
         for (var i = 0; i < hours.length; i++) hours[i].toApi(dayNames.indexOf(hours[i].day)),
       ]);
       _vendor = VendorProfile.fromApi(json);
-    } on StoreApiException {
+      lastError = null;
+    } on StoreApiException catch (e) {
       // keep optimistic value
+      lastError = e.message;
     }
     notifyListeners();
     await _persistVendor();
@@ -450,8 +520,10 @@ class VendorProvider extends ChangeNotifier {
     try {
       final json = await api.updateDeliverySettings(settings.toApi());
       _vendor = VendorProfile.fromApi(json);
-    } on StoreApiException {
+      lastError = null;
+    } on StoreApiException catch (e) {
       // keep optimistic value
+      lastError = e.message;
     }
     notifyListeners();
     await _persistVendor();

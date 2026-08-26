@@ -58,6 +58,43 @@ class DeliverySettings {
   }
 }
 
+/// A store promotion shown on the storefront (from GET /vendors/{id}).
+/// Coded promos are applied by entering [code] at checkout; promos without
+/// a code apply to every eligible order automatically.
+class StorePromo {
+  final String id;
+  final String title;
+  final String description;
+  final String discountType; // percent | fixed
+  final double discountValue;
+  final String? code;
+  final double minSubtotal;
+
+  StorePromo({
+    required this.id,
+    required this.title,
+    this.description = '',
+    required this.discountType,
+    required this.discountValue,
+    this.code,
+    this.minSubtotal = 0,
+  });
+
+  factory StorePromo.fromJson(Map<String, dynamic> json) => StorePromo(
+        id: json['id'] as String,
+        title: json['title'] as String? ?? '',
+        description: json['description'] as String? ?? '',
+        discountType: json['discount_type'] as String? ?? 'percent',
+        discountValue: (json['discount_value'] as num?)?.toDouble() ?? 0,
+        code: json['code'] as String?,
+        minSubtotal: (json['min_subtotal'] as num?)?.toDouble() ?? 0,
+      );
+
+  String get discountLabel => discountType == 'percent'
+      ? '${discountValue.toStringAsFixed(discountValue == discountValue.roundToDouble() ? 0 : 2)}% OFF'
+      : '₱${discountValue.toStringAsFixed(0)} OFF';
+}
+
 class VendorProfile {
   final String id;
   String storeName;
@@ -76,6 +113,7 @@ class VendorProfile {
   List<OperatingHours> operatingHours;
   DeliverySettings deliverySettings;
   List<FoodItemRef> menu;
+  List<StorePromo> promotions;
 
   VendorProfile({
     required this.id,
@@ -95,10 +133,12 @@ class VendorProfile {
     List<OperatingHours>? operatingHours,
     DeliverySettings? deliverySettings,
     List<FoodItemRef>? menu,
+    List<StorePromo>? promotions,
   })  : categories = categories ?? [],
         operatingHours = operatingHours ?? [],
         deliverySettings = deliverySettings ?? DeliverySettings(),
-        menu = menu ?? [];
+        menu = menu ?? [],
+        promotions = promotions ?? [];
 
   factory VendorProfile.fromJson(Map<String, dynamic> json) {
     final vendorId = json['id'] as String;
@@ -121,6 +161,10 @@ class VendorProfile {
           : DeliverySettings(),
       menu: (json['menu'] as List?)
               ?.map((e) => FoodItemRef.fromJson(e as Map<String, dynamic>, vendorId))
+              .toList() ??
+          [],
+      promotions: (json['promotions'] as List?)
+              ?.map((e) => StorePromo.fromJson(e as Map<String, dynamic>))
               .toList() ??
           [],
     );

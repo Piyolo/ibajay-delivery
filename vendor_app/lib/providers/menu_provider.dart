@@ -84,6 +84,9 @@ class MenuProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Uploads an image and returns its public URL (POST /uploads).
+  Future<String> uploadImage(String filePath) => _api.uploadImage(filePath);
+
   Future<void> deleteItem(String id) async {
     final index = _items.indexWhere((f) => f.id == id);
     if (index == -1) return;

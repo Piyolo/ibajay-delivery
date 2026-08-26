@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/location_provider.dart';
 import '../../theme/app_theme.dart';
 import '../location/location_setup_screen.dart';
 import '../main_shell.dart';
 import 'forgot_password_screen.dart';
+import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -45,9 +47,12 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() => _error = auth.lastAuthError ?? 'Invalid mobile number or password');
       return;
     }
+    // Route on the signed-in user's own address state, not a global flag.
+    final hasLocation =
+        context.read<LocationProvider>().addresses.isNotEmpty || auth.hasSavedLocation;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(
-        builder: (_) => auth.hasSavedLocation ? const MainShell() : const LocationSetupScreen(),
+        builder: (_) => hasLocation ? const MainShell() : const LocationSetupScreen(),
       ),
       (route) => false,
     );
@@ -112,6 +117,20 @@ class _LoginScreenState extends State<LoginScreen> {
                           )
                         : const Text('Login'),
                   ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text("Don't have an account?",
+                        style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                    TextButton(
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const RegisterScreen()),
+                      ),
+                      child: const Text('Sign Up'),
+                    ),
+                  ],
                 ),
               ],
             ),

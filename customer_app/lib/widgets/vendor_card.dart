@@ -24,9 +24,12 @@ class VendorCard extends StatelessWidget {
             children: [
               Stack(
                 children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(AppRadius.md),
-                    child: const PlaceholderImage(width: 84, height: 84, icon: Icons.storefront),
+                  RemoteImage(
+                    url: vendor.logoUrl,
+                    width: 84,
+                    height: 84,
+                    icon: Icons.storefront,
+                    borderRadius: AppRadius.md,
                   ),
                   if (!vendor.isOpen)
                     Positioned.fill(

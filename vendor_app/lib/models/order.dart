@@ -52,20 +52,29 @@ extension OrderStatusX on OrderStatus {
     }
   }
 
-  /// The next logical status a vendor can move an order to (linear happy path).
-  OrderStatus? get next {
-    const flow = [
-      OrderStatus.pending,
-      OrderStatus.accepted,
-      OrderStatus.preparing,
-      OrderStatus.ready,
-      OrderStatus.outForDelivery,
-      OrderStatus.delivered,
-      OrderStatus.completed,
-    ];
-    final i = flow.indexOf(this);
-    if (i == -1 || i == flow.length - 1) return null;
-    return flow[i + 1];
+  /// The next logical status a vendor can move an order to. Pickup orders
+  /// skip the delivery-tracking flow entirely (ready → collected =
+  /// completed), matching the backend's guarded transitions.
+  OrderStatus? nextFor(FulfillmentType fulfillmentType) {
+    switch (this) {
+      case OrderStatus.pending:
+        return OrderStatus.accepted;
+      case OrderStatus.accepted:
+        return OrderStatus.preparing;
+      case OrderStatus.preparing:
+        return OrderStatus.ready;
+      case OrderStatus.ready:
+        return fulfillmentType == FulfillmentType.pickup
+            ? OrderStatus.completed
+            : OrderStatus.outForDelivery;
+      case OrderStatus.outForDelivery:
+        return OrderStatus.delivered;
+      case OrderStatus.delivered:
+        return OrderStatus.completed;
+      case OrderStatus.completed:
+      case OrderStatus.cancelled:
+        return null;
+    }
   }
 }
 
@@ -177,10 +186,26 @@ class VendorOrder {
       placedAt: parseDate(json['created_at'] as String?) ?? DateTime.now(),
       scheduledFor: parseDate(json['scheduled_for'] as String?),
       deliveryFee: (json['delivery_fee'] as num?)?.toDouble() ?? 0,
-      paymentMethod: (json['payment_method'] as String? ?? 'cash_on_delivery') == 'cash_on_pickup'
-          ? 'Cash on Pickup'
-          : 'Cash on Delivery',
+      paymentMethod: paymentLabel(json['payment_method'] as String?),
       notes: json['special_instructions'] as String? ?? '',
     );
+  }
+
+  /// Human label for every PaymentMethod the backend can send.
+  static String paymentLabel(String? key) {
+    switch (key) {
+      case 'cash_on_pickup':
+        return 'Cash on Pickup';
+      case 'gcash':
+        return 'GCash';
+      case 'maya':
+        return 'Maya';
+      case 'credit_card':
+        return 'Credit/Debit Card';
+      case 'bank_transfer':
+        return 'Bank Transfer';
+      default:
+        return 'Cash on Delivery';
+    }
   }
 }

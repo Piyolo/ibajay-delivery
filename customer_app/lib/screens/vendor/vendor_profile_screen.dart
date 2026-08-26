@@ -49,9 +49,18 @@ class VendorProfileScreen extends StatelessWidget {
                 ),
                 IconButton(
                   icon: const Icon(Icons.chat_bubble_outline),
-                  onPressed: () {
-                    final thread = context.read<ChatProvider>().getOrCreateThread(vendor);
-                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => ChatScreen(threadId: thread.id)));
+                  onPressed: () async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    try {
+                      final thread =
+                          await context.read<ChatProvider>().getOrCreateThread(vendor);
+                      if (!context.mounted) return;
+                      Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => ChatScreen(threadId: thread.id)));
+                    } catch (_) {
+                      messenger.showSnackBar(const SnackBar(
+                          content: Text('Could not open the chat — try again')));
+                    }
                   },
                 ),
               ],
@@ -59,7 +68,7 @@ class VendorProfileScreen extends StatelessWidget {
                 background: Stack(
                   fit: StackFit.expand,
                   children: [
-                    const PlaceholderImage(icon: Icons.storefront),
+                    RemoteImage(url: vendor.bannerUrl, icon: Icons.storefront),
                     Container(
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
@@ -122,6 +131,50 @@ class VendorProfileScreen extends StatelessWidget {
                     const SizedBox(height: 8),
                     if (vendor.description.isNotEmpty)
                       Text(vendor.description, style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                    // Active promotions — coded promos are entered at
+                    // checkout; uncoded ones apply automatically.
+                    if (vendor.promotions.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        height: 34,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: vendor.promotions.length,
+                          separatorBuilder: (_, __) => const SizedBox(width: 8),
+                          itemBuilder: (context, i) {
+                            final promo = vendor.promotions[i];
+                            return Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: AppColors.primary.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(AppRadius.pill),
+                                border: Border.all(color: AppColors.primary.withValues(alpha: 0.4)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.local_offer, size: 13, color: AppColors.primary),
+                                  const SizedBox(width: 5),
+                                  Flexible(
+                                    child: Text(
+                                      promo.code != null && promo.code!.isNotEmpty
+                                          ? '${promo.discountLabel} · Code ${promo.code}'
+                                          : '${promo.title} — ${promo.discountLabel}',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                          fontSize: 11.5,
+                                          fontWeight: FontWeight.w700,
+                                          color: AppColors.primary),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 8),
                     Row(
                       children: [
@@ -297,9 +350,12 @@ class _FoodTile extends StatelessWidget {
             children: [
               Stack(
                 children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(AppRadius.md),
-                    child: const PlaceholderImage(width: 72, height: 72, icon: Icons.fastfood),
+                  RemoteImage(
+                    url: food.imageUrl,
+                    width: 72,
+                    height: 72,
+                    icon: Icons.fastfood,
+                    borderRadius: AppRadius.md,
                   ),
                   if (!food.isAvailable)
                     Positioned.fill(

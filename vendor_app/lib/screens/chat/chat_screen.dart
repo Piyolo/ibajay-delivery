@@ -1,21 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+import '../../providers/chat_provider.dart';
 import '../../theme/app_theme.dart';
 
-class _Message {
-  final String text;
-  final bool fromVendor;
-  final String time;
-  const _Message({required this.text, required this.fromVendor, required this.time});
-}
-
-/// Order-based chat between vendor and customer.
-/// TODO: replace the in-memory `_messages` list with a FastAPI WebSocket
-/// connection (e.g. `ws://.../ws/chats/{orderId}`) for real-time delivery,
-/// and persist history via the `chats`/`messages` tables.
+/// Order-based chat between the store and a customer, backed by
+/// `GET /chats/{id}/messages` + `ws /ws/chats/{id}`.
 class ChatScreen extends StatefulWidget {
-  final String customerName;
-  final String orderId;
-  const ChatScreen({super.key, required this.customerName, required this.orderId});
+  final String threadId;
+  const ChatScreen({super.key, required this.threadId});
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -24,53 +17,79 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
-  late List<_Message> _messages;
+
+  // Captured for dispose(), where provider lookups are no longer allowed.
+  late final ChatProvider _chat = context.read<ChatProvider>();
 
   @override
   void initState() {
     super.initState();
-    _messages = [
-      const _Message(text: 'Hi! I just placed an order.', fromVendor: false, time: '2:41 PM'),
-      const _Message(text: 'Got it, preparing it now 😊', fromVendor: true, time: '2:42 PM'),
-      const _Message(text: 'Is it okay if I add extra rice?', fromVendor: false, time: '2:44 PM'),
-    ];
+    _chat.connect(widget.threadId);
+  }
+
+  @override
+  void dispose() {
+    _chat.disconnect();
+    _controller.dispose();
+    _scrollController.dispose();
+    super.dispose();
   }
 
   void _send() {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
-    setState(() {
-      _messages.add(_Message(text: text, fromVendor: true, time: 'Now'));
-      _controller.clear();
+    _chat.sendMessage(widget.threadId, text);
+    _controller.clear();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOut,
+        );
+      }
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    final chat = context.watch<ChatProvider>();
+    final thread = chat.threadById(widget.threadId);
+    final myUserId = chat.myUserId;
+
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(widget.customerName, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-            Text(widget.orderId, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+            Text(thread?.customerName ?? 'Chat',
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            Text(
+              chat.lastError ?? 'Live chat',
+              style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            ),
           ],
         ),
-        actions: [
-          IconButton(icon: const Icon(Icons.call_outlined), onPressed: () {}),
-        ],
       ),
       body: SafeArea(
         child: Column(
           children: [
             Expanded(
-              child: ListView.builder(
-                controller: _scrollController,
-                padding: const EdgeInsets.all(AppSpacing.md),
-                itemCount: _messages.length,
-                itemBuilder: (context, i) => _bubble(_messages[i]),
-              ),
+              child: thread == null || thread.messages.isEmpty
+                  ? Center(
+                      child: Text(
+                        chat.lastError ?? 'No messages yet — say hi!',
+                        style: const TextStyle(color: AppColors.textSecondary),
+                      ),
+                    )
+                  : ListView.builder(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.all(AppSpacing.md),
+                      itemCount: thread.messages.length,
+                      itemBuilder: (context, i) =>
+                          _bubble(thread.messages[i], thread.messages[i].fromMe(myUserId)),
+                    ),
             ),
             Container(
               padding: const EdgeInsets.all(12),
@@ -80,7 +99,6 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
               child: Row(
                 children: [
-                  IconButton(icon: const Icon(Icons.image_outlined, color: AppColors.textSecondary), onPressed: () {}),
                   Expanded(
                     child: TextField(
                       controller: _controller,
@@ -93,7 +111,8 @@ class _ChatScreenState extends State<ChatScreen> {
                   IconButton.filled(
                     onPressed: _send,
                     icon: const Icon(Icons.send_rounded, size: 18),
-                    style: IconButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white),
+                    style: IconButton.styleFrom(
+                        backgroundColor: AppColors.primary, foregroundColor: Colors.white),
                   ),
                 ],
               ),
@@ -104,27 +123,27 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _bubble(_Message m) {
-    final align = m.fromVendor ? CrossAxisAlignment.end : CrossAxisAlignment.start;
-    final color = m.fromVendor ? AppColors.primary : AppColors.surfaceMuted;
-    final textColor = m.fromVendor ? Colors.white : AppColors.textPrimary;
-
+  Widget _bubble(VendorChatMessage m, bool fromMe) {
+    final time = DateFormat('h:mm a').format(m.createdAt);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Column(
-        crossAxisAlignment: align,
+        crossAxisAlignment: fromMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         children: [
           Container(
             constraints: const BoxConstraints(maxWidth: 260),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
-              color: color,
+              color: fromMe ? AppColors.primary : AppColors.surfaceMuted,
               borderRadius: BorderRadius.circular(AppRadius.md),
             ),
-            child: Text(m.text, style: TextStyle(color: textColor)),
+            child: Text(
+              m.content ?? '',
+              style: TextStyle(color: fromMe ? Colors.white : AppColors.textPrimary),
+            ),
           ),
           const SizedBox(height: 2),
-          Text(m.time, style: const TextStyle(fontSize: 10, color: AppColors.textSecondary)),
+          Text(time, style: const TextStyle(fontSize: 10, color: AppColors.textSecondary)),
         ],
       ),
     );

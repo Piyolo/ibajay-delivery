@@ -3,6 +3,7 @@ import Lenis from 'lenis'
 import { motion, useScroll, useSpring } from 'framer-motion'
 
 import MarketplaceMap from './components/MarketplaceMap'
+import MarketplaceScene from './components/MarketplaceScene'
 import Navbar from './components/Navbar'
 import Hero from './components/Hero'
 import Marquee from './components/Marquee'
@@ -147,6 +148,8 @@ export default function App() {
           accent="ember"
           steps={CUSTOMER_STEPS}
         />
+
+        <MarketplaceScene />
 
         <ShowcaseSection
           id="vendor"

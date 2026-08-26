@@ -70,7 +70,7 @@ export default function Waitlist() {
   }
 
   return (
-    <section id="waitlist" className="relative z-10 py-28">
+    <section id="waitlist" className="relative z-10 py-16 sm:py-28">
       {/* signup counter */}
       <div ref={countWrapRef} className="mx-auto mb-10 max-w-2xl px-6 text-center">
         {count !== null ? (

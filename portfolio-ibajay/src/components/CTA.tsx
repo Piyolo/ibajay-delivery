@@ -2,7 +2,7 @@ import { motion } from 'framer-motion'
 
 export default function CTA() {
   return (
-    <section id="cta" className="relative z-10 overflow-hidden py-32">
+    <section id="cta" className="relative z-10 overflow-hidden py-20 sm:py-32">
       {/* glow rings */}
       <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
         <div className="h-[540px] w-[540px] rounded-full border border-ember/15" />
@@ -26,7 +26,7 @@ export default function CTA() {
           whileInView={{ opacity: 1, y: 0, scale: 1 }}
           viewport={{ once: true, margin: '-80px' }}
           transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }}
-          className="mt-6 font-display text-6xl font-bold leading-[0.95] tracking-tight sm:text-8xl"
+          className="mt-6 font-display text-5xl font-bold leading-[0.95] tracking-tight sm:text-8xl"
         >
           Gutom ka na ba?
           <br />

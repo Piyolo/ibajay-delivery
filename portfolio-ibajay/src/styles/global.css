@@ -83,6 +83,15 @@ body {
   border-color: rgba(255, 255, 255, 0.08);
 }
 
+/* hide scrollbars on horizontal mobile strips while keeping them scrollable */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* section label chip */
 .section-chip {
   @apply inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.22em];

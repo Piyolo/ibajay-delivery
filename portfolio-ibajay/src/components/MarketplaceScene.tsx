@@ -45,18 +45,18 @@ function FoodCard({ item, index }: { item: DemoFood; index: number }) {
       viewport={{ once: true, margin: '-60px' }}
       transition={{ duration: 0.55, delay: index * 0.08 }}
       whileHover={{ y: -5, rotate: index % 2 ? 0.8 : -0.8 }}
-      className="pointer-events-auto w-40 overflow-hidden rounded-2xl border border-white/10 bg-ink-card/95 shadow-xl shadow-black/50 backdrop-blur-sm"
+      className="pointer-events-auto w-[150px] overflow-hidden rounded-2xl border border-white/10 bg-ink-card/95 shadow-xl shadow-black/50 backdrop-blur-sm sm:w-40"
     >
       {/* photo block leads — food is the hero */}
       <div
-        className="flex h-20 items-center justify-center"
+        className="flex h-14 items-center justify-center sm:h-20"
         style={{ background: `linear-gradient(135deg, ${item.tint}40, #FFB84522)` }}
       >
-        <span className="text-4xl drop-shadow-lg" aria-hidden>
+        <span className="text-3xl drop-shadow-lg sm:text-4xl" aria-hidden>
           {item.emoji}
         </span>
       </div>
-      <div className="p-3 pt-2">
+      <div className="p-2.5 pt-1.5 sm:p-3 sm:pt-2">
         <div className="flex items-start justify-between gap-2">
           <p className="text-sm font-bold leading-tight text-cream">{item.name}</p>
           <SampleTag />
@@ -216,7 +216,7 @@ export default function MarketplaceScene() {
   return (
     <section id="marketplace" ref={ref} className="relative z-10" style={{ height: reduce ? 'auto' : SECTION_HEIGHT }}>
       {/* sticky viewport that the story plays inside */}
-      <div className="sticky top-0 flex h-screen items-center overflow-hidden py-20">
+      <div className="sticky top-0 flex h-screen items-center overflow-hidden py-14 sm:py-20">
         {/* ---- background layer: sky tint + town silhouette ---- */}
         <motion.div style={{ y: skyY }} className="absolute inset-0" aria-hidden>
           <div className="absolute inset-x-0 top-0 h-64 bg-gradient-to-b from-[#1A1410] to-transparent opacity-70" />
@@ -271,21 +271,21 @@ export default function MarketplaceScene() {
         </motion.div>
 
         {/* ---- foreground: food cards (left cluster) + vendor chips (right) ---- */}
-        <motion.div style={{ y: reduce ? undefined : fgY }} className="pointer-events-none absolute inset-x-0 top-[16%] px-6 lg:px-14">
+        <motion.div style={{ y: reduce ? undefined : fgY }} className="pointer-events-none absolute inset-x-0 top-[5%] px-6 sm:top-[16%] lg:px-14">
           <div className="mx-auto grid max-w-[88rem] gap-10 lg:grid-cols-[1fr_auto]">
             {/* food column */}
             <div>
-              <p className="mb-4 flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.25em] text-white/40">
+              <p className="mb-3 flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.25em] text-white/40 sm:mb-4">
                 Around town right now <SampleTag />
               </p>
-              <div className="flex flex-wrap gap-3 sm:max-w-md">
+              <div className="flex flex-wrap gap-2.5 sm:gap-3 sm:max-w-md">
                 {DEMO_FOOD.map((item, i) => (
                   <FoodCard key={item.name} item={item} index={i} />
                 ))}
               </div>
 
               {/* live order journey readout */}
-              <div className="mt-10 max-w-md space-y-2.5">
+              <div className="mt-6 max-w-md space-y-2 sm:mt-10 sm:space-y-2.5">
                 <p className="font-mono text-[10px] uppercase tracking-[0.25em] text-white/40">
                   One order, start to finish
                 </p>
@@ -293,14 +293,14 @@ export default function MarketplaceScene() {
                   <motion.div
                         key={s.label}
                         style={{ opacity: reduce ? 1 : s.opacity }}
-                        className="flex items-center gap-3 rounded-xl border border-white/[0.07] bg-black/30 px-4 py-2.5 backdrop-blur-sm transition-colors"
+                        className="flex items-center gap-3 rounded-xl border border-white/[0.07] bg-black/30 px-3 py-2 backdrop-blur-sm transition-colors sm:px-4 sm:py-2.5"
                       >
                     <span className="font-mono text-[10px] text-white/35">0{i + 1}</span>
                     <span aria-hidden>{s.icon}</span>
-                    <span className="text-sm font-medium text-white/85">{s.label}</span>
+                    <span className="text-[13px] font-medium text-white/85 sm:text-sm">{s.label}</span>
                   </motion.div>
                 ))}
-                <p className="pt-1 font-mono text-[10px] text-white/35">
+                <p className="hidden pt-1 font-mono text-[10px] text-white/35 sm:block">
                   Illustrative flow — shows how an order moves through Ibajay Eats.
                 </p>
               </div>
@@ -319,7 +319,7 @@ export default function MarketplaceScene() {
         </motion.div>
 
         {/* mobile vendor strip (in-flow on small screens so it never overlaps the journey list) */}
-        <div className="absolute inset-x-0 bottom-[2%] flex gap-2 overflow-x-auto px-6 pb-2 sm:hidden">
+        <div className="no-scrollbar absolute inset-x-0 bottom-[2%] flex gap-2 overflow-x-auto px-6 pb-2 sm:hidden">
           {DEMO_VENDORS.map((v) => (
             <span
               key={v.kind}

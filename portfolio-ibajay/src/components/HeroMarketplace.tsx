@@ -67,9 +67,9 @@ export function HeroFoodCards({ shiftX }: { shiftX?: import('framer-motion').Mot
       ))}
 
       {/* mobile/tablet: compact horizontal strip under the copy */}
-      <div className="mt-8 flex gap-2 overflow-x-auto pb-2 xl:hidden">
+      <div className="no-scrollbar mt-8 flex min-w-0 max-w-full snap-x snap-mandatory gap-2 overflow-x-auto pb-2 xl:hidden">
         {MOBILE_FOODS.map((f) => (
-          <div key={f.name} className="shrink-0 rounded-xl border border-white/10 bg-[#1B1614]/90 p-2 pr-3 backdrop-blur-sm">
+          <div key={f.name} className="shrink-0 snap-start rounded-xl border border-white/10 bg-[#1B1614]/90 p-2 pr-3 backdrop-blur-sm">
             <div className="flex items-center gap-2">
               <span className="flex h-9 w-9 items-center justify-center rounded-lg text-lg" style={{ backgroundColor: `${f.tint}26` }} aria-hidden>
                 {f.emoji}

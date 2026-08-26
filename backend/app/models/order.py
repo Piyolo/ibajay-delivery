@@ -31,6 +31,10 @@ class Order(Base):
 
     subtotal: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
     delivery_fee: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
+    discount: Mapped[float] = mapped_column(Numeric(10, 2), default=0, nullable=False)
+    promotion_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("promotions.id", ondelete="SET NULL"), nullable=True
+    )
     total: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
 
     special_instructions: Mapped[str | None] = mapped_column(String(1000), nullable=True)

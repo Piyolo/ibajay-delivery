@@ -13,6 +13,7 @@ to run repeatedly. Run after create_tables.py:
 """
 import asyncio
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,7 +36,8 @@ VENDORS_JSON = (
     / "customer_app" / "assets" / "data" / "vendors.json"
 )
 
-SEED_OWNER_PASSWORD = "vendor123"
+# Dev-only default; override with SEED_OWNER_PASSWORD when seeding.
+SEED_OWNER_PASSWORD = os.environ.get("SEED_OWNER_PASSWORD", "vendor123")
 
 # 08:00-style JSON strings -> time(0, 6, 7, ...) day rows
 DEFAULT_HOURS = [(d, "08:00", "20:00", False) for d in range(7)]

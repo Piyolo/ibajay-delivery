@@ -1,5 +1,6 @@
 """Request/response schemas for the vendor back-office portal."""
 import uuid
+from datetime import datetime
 
 from pydantic import BaseModel, field_validator
 
@@ -42,9 +43,11 @@ class VendorStoreCreate(BaseModel):
     store_name: str
     description: str | None = None
     address: str
-    latitude: float = 11.5459   # Ibajay town center default
-    longitude: float = 122.2039
+    latitude: float = 11.8211   # Ibajay town proper default (11°49'16"N)
+    longitude: float = 122.1617
     contact_number: str = ""
+    logo_url: str | None = None
+    banner_url: str | None = None
     categories: list[str] = []
     delivery_enabled: bool = True
     pickup_enabled: bool = True
@@ -143,3 +146,65 @@ class AnalyticsOut(BaseModel):
     completed_today: int
     cancelled_today: int
     week: list[DayRevenue]   # last 7 days, oldest first
+
+
+# ---- Promotions ----
+
+class PromotionCreate(BaseModel):
+    title: str
+    description: str | None = None
+    discount_type: str = "percent"   # percent | fixed
+    discount_value: float
+    code: str | None = None          # uppercase; None = auto-applied store-wide
+    min_subtotal: float = 0
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+
+    @field_validator("discount_type")
+    @classmethod
+    def valid_type(cls, v: str) -> str:
+        if v not in ("percent", "fixed"):
+            raise ValueError("discount_type must be 'percent' or 'fixed'")
+        return v
+
+    @field_validator("code")
+    @classmethod
+    def normalize_code(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        code = v.strip().upper()
+        return code or None
+
+    @field_validator("discount_value")
+    @classmethod
+    def positive(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError("discount_value must be greater than 0")
+        return v
+
+
+class PromotionUpdate(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    discount_value: float | None = None
+    min_subtotal: float | None = None
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+    is_active: bool | None = None
+
+
+class PromotionOut(BaseModel):
+    id: uuid.UUID
+    title: str
+    description: str | None
+    discount_type: str
+    discount_value: float
+    code: str | None
+    min_subtotal: float
+    starts_at: datetime | None
+    ends_at: datetime | None
+    is_active: bool
+    times_used: int
+
+    class Config:
+        from_attributes = True

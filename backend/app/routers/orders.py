@@ -11,9 +11,16 @@ from app.core.deps import get_current_user, require_customer, require_vendor
 from app.models.enums import DeliveryMethod, OrderStatus
 from app.models.food import FoodItem
 from app.models.order import Order, OrderItem, OrderStatusHistory
+from app.models.social import Promotion
 from app.models.user import Address, User
 from app.models.vendor import Vendor
-from app.schemas.order import CheckoutRequest, OrderOut, UpdateOrderStatus
+from app.schemas.order import (
+    CheckoutRequest,
+    OrderOut,
+    PromoValidateOut,
+    PromoValidateRequest,
+    UpdateOrderStatus,
+)
 from app.services.geo import calculate_delivery_fee, haversine_km
 from app.services.realtime import connection_manager
 from app.services.notifications import notify_order_event
@@ -34,6 +41,48 @@ NEXT_STATUS = {
 
 def _generate_order_number() -> str:
     return f"ORD-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
+
+
+async def _find_promo(db: AsyncSession, vendor_id: uuid.UUID, code: str) -> Promotion | None:
+    normalized = (code or "").strip().upper()
+    if not normalized:
+        return None
+    result = await db.execute(
+        select(Promotion).where(
+            Promotion.vendor_id == vendor_id,
+            Promotion.code == normalized,
+            Promotion.is_active == True,  # noqa: E712
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+def _promo_is_live(promo: Promotion, now: datetime) -> bool:
+    if promo.starts_at and now < promo.starts_at:
+        return False
+    if promo.ends_at and now > promo.ends_at:
+        return False
+    return True
+
+
+def _promo_discount(promo: Promotion, subtotal: float) -> float:
+    raw = subtotal * (float(promo.discount_value) / 100.0) if promo.discount_type == "percent" \
+        else float(promo.discount_value)
+    return round(min(raw, subtotal), 2)
+
+
+async def _validate_promotion(
+    db: AsyncSession, vendor_id: uuid.UUID, code: str, subtotal: float
+) -> tuple[Promotion | None, str | None]:
+    promo = await _find_promo(db, vendor_id, code)
+    now = datetime.now(timezone.utc)
+    if not promo:
+        return None, "Invalid promo code"
+    if not _promo_is_live(promo, now):
+        return None, "This promotion has expired"
+    if subtotal < float(promo.min_subtotal):
+        return None, f"Minimum spend of ₱{float(promo.min_subtotal):.0f} required"
+    return promo, None
 
 
 @router.post("/checkout", response_model=OrderOut, status_code=status.HTTP_201_CREATED)
@@ -75,6 +124,15 @@ async def checkout(
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Address is outside this vendor's delivery radius")
         delivery_fee = calculate_delivery_fee(distance_km, float(settings_.base_delivery_fee), float(settings_.fee_per_km))
 
+        # Barangay-scoped delivery: a vendor with an explicit area list only
+        # delivers inside it (pickup stays available regardless).
+        barangays = settings_.delivery_barangays or []
+        if barangays and address.barangay and address.barangay not in barangays:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "This store doesn't deliver to your barangay — pickup may still be available",
+            )
+
     if not payload.items:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cart cannot be empty")
 
@@ -107,6 +165,16 @@ async def checkout(
             )
         )
 
+    # Promotion (optional): validated server-side, never trust client math.
+    discount = 0.0
+    promotion = None
+    if payload.promo_code:
+        promotion, error = await _validate_promotion(db, vendor.id, payload.promo_code, subtotal)
+        if promotion is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, error or "Invalid promo code")
+        discount = _promo_discount(promotion, subtotal)
+
+    total = max(0.0, subtotal + delivery_fee - discount)
     order = Order(
         order_number=_generate_order_number(),
         customer_id=user.id,
@@ -120,18 +188,40 @@ async def checkout(
         scheduled_for=payload.scheduled_for,
         subtotal=subtotal,
         delivery_fee=delivery_fee,
-        total=subtotal + delivery_fee,
+        discount=discount,
+        promotion_id=promotion.id if promotion else None,
+        total=total,
         special_instructions=payload.special_instructions,
         items=order_items,
     )
     db.add(order)
     await db.flush()
     db.add(OrderStatusHistory(order_id=order.id, status=OrderStatus.pending, note="Order placed"))
+    if promotion:
+        promotion.times_used += 1
     await db.commit()
     await db.refresh(order, attribute_names=["items"])
 
     await notify_order_event(vendor.owner_id, order, event="new_order")
     return order
+
+
+@router.post("/validate-promo", response_model=PromoValidateOut)
+async def validate_promo(
+    payload: PromoValidateRequest,
+    user: User = Depends(require_customer),
+    db: AsyncSession = Depends(get_db),
+):
+    """Pre-checks a promo code at checkout so the customer sees the
+    discount before placing the order."""
+    promo, error = await _validate_promotion(db, payload.vendor_id, payload.code, payload.subtotal)
+    if promo is None:
+        return PromoValidateOut(valid=False, message=error)
+    return PromoValidateOut(
+        valid=True,
+        title=promo.title,
+        discount=_promo_discount(promo, payload.subtotal),
+    )
 
 
 @router.get("/my-orders", response_model=list[OrderOut])
@@ -182,6 +272,7 @@ async def vendor_inbox(
             payment_method=o.payment_method,
             subtotal=float(o.subtotal),
             delivery_fee=float(o.delivery_fee),
+            discount=float(o.discount or 0),
             total=float(o.total),
             scheduled_for=o.scheduled_for,
             created_at=o.created_at,

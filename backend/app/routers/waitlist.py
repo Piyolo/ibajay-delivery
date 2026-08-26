@@ -1,13 +1,18 @@
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, field_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.db import get_db
 from app.models.waitlist import WaitlistEntry
+from app.services.email import send_waitlist_alert, send_waitlist_confirmation
 
 router = APIRouter(prefix="/waitlist", tags=["Waitlist"])
+settings = get_settings()
 
 
 class WaitlistJoin(BaseModel):
@@ -54,5 +59,15 @@ async def join_waitlist(payload: WaitlistJoin, db: AsyncSession = Depends(get_db
         # Raced another request for the same email.
         await db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, "This email is already on the waitlist")
+
+    # Emails are best-effort: a Resend outage must never fail the signup itself.
+    async def _emails():
+        try:
+            await send_waitlist_confirmation(entry.email, entry.name, entry.interest)
+            await send_waitlist_alert(entry.name, entry.email, entry.interest)
+        except Exception:
+            pass  # logged by the email layer on hard failures; signup still counts
+
+    asyncio.create_task(_emails())
 
     return WaitlistJoined(message="You're on the list — salamat! We'll email you when Ibajay Eats launches.")

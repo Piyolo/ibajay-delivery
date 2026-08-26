@@ -39,6 +39,46 @@ async def send_email(to: str, subject: str, html: str) -> None:
             )
 
 
+async def send_waitlist_confirmation(to: str, name: str, interest: str) -> None:
+    """Confirmation email to the person who joined the pre-launch waitlist."""
+    kind = (
+        "As a business owner, you'll get early access to set up your storefront"
+        if interest == "vendor"
+        else "You'll be among the first to order from local stores around town"
+    )
+    subject = "You're on the Ibajay Eats waitlist!"
+    html = f"""
+    <div style="font-family: sans-serif; max-width: 480px; margin: auto; color: #1D1A17;">
+      <h2 style="color: #E85D2A;">Salamat, {name}!</h2>
+      <p>You're officially on the <strong>Ibajay Eats</strong> waitlist.</p>
+      <p>{kind}.</p>
+      <p>We'll email you the moment we launch in Ibajay, Aklan.</p>
+      <p style="color: #888; font-size: 12px;">You received this because someone used this
+      email to join the Ibajay Eats waitlist at ibajayeats.linkpc.net.</p>
+    </div>
+    """
+    await send_email(to, subject, html)
+
+
+async def send_waitlist_alert(name: str, email: str, interest: str) -> None:
+    """Notify the owner that a new person joined the waitlist."""
+    settings = get_settings()
+    notify_to = settings.WAITLIST_NOTIFY_EMAIL or settings.EMAIL_FROM
+    subject = f"New waitlist signup ({interest}): {name}"
+    html = f"""
+    <div style="font-family: sans-serif; max-width: 480px;">
+      <h2>New waitlist signup</h2>
+      <ul>
+        <li><strong>Name:</strong> {name}</li>
+        <li><strong>Email:</strong> {email}</li>
+        <li><strong>Interest:</strong> {interest}</li>
+      </ul>
+      <p>Total signups so far: check the Neon console (waitlist_entries table).</p>
+    </div>
+    """
+    await send_email(notify_to, subject, html)
+
+
 async def send_otp_email(to: str, otp_code: str, purpose: str = "registration") -> None:
     subject = "Verify Your Account" if purpose == "registration" else "Reset Your Password"
     html = f"""

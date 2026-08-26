@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
 from app.core.config import get_settings
-from app.routers import addresses, auth, chat, orders, realtime_ws, tracking, vendors, vendor_portal
+from app.routers import addresses, auth, chat, orders, realtime_ws, tracking, vendors, vendor_portal, waitlist
 
 settings = get_settings()
 
@@ -29,6 +29,7 @@ app.include_router(vendor_portal.router, prefix=api)
 app.include_router(orders.router, prefix=api)
 app.include_router(tracking.router, prefix=api)
 app.include_router(chat.router, prefix=api)
+app.include_router(waitlist.router, prefix=api)
 app.include_router(realtime_ws.router)  # WebSocket routes: no versioned prefix needed
 
 

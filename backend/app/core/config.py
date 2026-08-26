@@ -86,6 +86,8 @@ class Settings(BaseSettings):
     # --- Email (Resend) ---
     RESEND_API_KEY: str = ""
     EMAIL_FROM: str = "no-reply@yourdomain.com"
+    # Where "new waitlist signup" alerts are sent. Falls back to EMAIL_FROM if unset.
+    WAITLIST_NOTIFY_EMAIL: str = ""
     OTP_EXPIRE_MINUTES: int = 5
     OTP_MAX_ATTEMPTS: int = 5
     OTP_RESEND_COOLDOWN_SECONDS: int = 60

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../constants/location_constants.dart';
 import '../../models/order.dart';
 import '../../models/vendor.dart';
 import '../../providers/cart_provider.dart';
@@ -40,22 +41,29 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     super.dispose();
   }
 
-  /// Picks the first fulfillment method the vendor actually offers and the
-  /// matching payment method, so the radio group never starts out with a
-  /// selection that matches no visible tile.
-  void _ensureDefaults(DeliverySettings settings) {
+  /// Picks the first fulfillment method the vendor actually offers AND that
+  /// covers the customer's address, so the radio group never starts out
+  /// with a selection that matches no visible tile.
+  void _ensureDefaults({
+    required bool deliveryAvailable,
+    required bool pickupAvailable,
+    required bool scheduledAvailable,
+  }) {
     if (_fulfillment != null &&
-        ((_fulfillment == FulfillmentType.delivery && settings.deliveryEnabled) ||
-            (_fulfillment == FulfillmentType.pickup && settings.pickupEnabled) ||
-            (_fulfillment == FulfillmentType.scheduled && settings.scheduledDeliveryEnabled))) {
+        ((_fulfillment == FulfillmentType.delivery && deliveryAvailable) ||
+            (_fulfillment == FulfillmentType.pickup && pickupAvailable) ||
+            (_fulfillment == FulfillmentType.scheduled && scheduledAvailable))) {
       return;
     }
-    if (settings.deliveryEnabled) {
+    if (deliveryAvailable) {
       _fulfillment = FulfillmentType.delivery;
-    } else if (settings.pickupEnabled) {
+    } else if (pickupAvailable) {
       _fulfillment = FulfillmentType.pickup;
-    } else if (settings.scheduledDeliveryEnabled) {
+    } else if (scheduledAvailable) {
       _fulfillment = FulfillmentType.scheduled;
+    } else {
+      _fulfillment = null;
+      return;
     }
     _syncPaymentWithFulfillment();
   }
@@ -204,9 +212,39 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     }
 
     final settings = vendor.deliverySettings;
-    _ensureDefaults(settings);
-    final deliveryFee =
-        _fulfillment == FulfillmentType.pickup ? 0.0 : settings.baseDeliveryFee;
+
+    // Coverage check mirrors browse filtering: a store with delivery areas
+    // must include the customer's barangay, otherwise delivery (regular or
+    // scheduled) isn't offered here even if the store supports it.
+    final vendors = context.read<VendorProvider>();
+    final servesAddress = vendors.servesCustomer(
+      vendor,
+      barangay: location.referenceBarangay,
+      lat: location.referenceLat,
+      lng: location.referenceLng,
+    );
+    final deliveryAvailable = settings.deliveryEnabled && servesAddress;
+    final pickupAvailable = settings.pickupEnabled;
+    final scheduledAvailable = settings.scheduledDeliveryEnabled && servesAddress;
+    _ensureDefaults(
+      deliveryAvailable: deliveryAvailable,
+      pickupAvailable: pickupAvailable,
+      scheduledAvailable: scheduledAvailable,
+    );
+
+    // Honest fee estimate: base + per-km from the store to the active
+    // address. The server recomputes the real fee at checkout.
+    final distanceKm = LocationConstants.haversineKm(
+      location.referenceLat,
+      location.referenceLng,
+      vendor.latitude,
+      vendor.longitude,
+    );
+    final estimatedFee =
+        settings.baseDeliveryFee + settings.perKmFee * distanceKm;
+    final deliveryFee = _fulfillment == FulfillmentType.pickup
+        ? 0.0
+        : (_fulfillment == null ? 0.0 : estimatedFee);
     final promoDiscount =
         _appliedPromoCode == null ? 0.0 : _promoDiscount.clamp(0.0, cart.subtotal);
     final total = (cart.subtotal + deliveryFee - promoDiscount)
@@ -228,38 +266,66 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           padding: const EdgeInsets.all(16),
           children: [
             const SectionHeader(title: 'Fulfillment Method'),
-            RadioGroup<FulfillmentType>(
-              groupValue: _fulfillment,
-              onChanged: (v) {
-                if (v == null) return;
-                setState(() {
-                  _fulfillment = v;
-                  _syncPaymentWithFulfillment();
-                });
-              },
-              child: Column(
-                children: [
-                  if (settings.deliveryEnabled)
-                    fulfillmentTile(
-                      FulfillmentType.delivery,
-                      'Delivery',
-                      '₱${settings.baseDeliveryFee.toStringAsFixed(0)} base fee · ${settings.estimatedPrepMinutes} min prep',
-                    ),
-                  if (settings.pickupEnabled)
-                    fulfillmentTile(
-                      FulfillmentType.pickup,
-                      'Pickup',
-                      'No delivery fee — pick up at the store',
-                    ),
-                  if (settings.scheduledDeliveryEnabled)
-                    fulfillmentTile(
-                      FulfillmentType.scheduled,
-                      'Scheduled Delivery',
-                      'Choose a future date and time',
-                    ),
-                ],
+            if (!deliveryAvailable &&
+                !pickupAvailable &&
+                !scheduledAvailable)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.warning.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                ),
+                child: Text(
+                  location.referenceBarangay.isEmpty
+                      ? "This store has no available fulfillment options right now."
+                      : "This store can't deliver to ${location.referenceBarangay} yet, and pickup is turned off.",
+                  style: const TextStyle(fontSize: 13),
+                ),
+              )
+            else ...[
+              RadioGroup<FulfillmentType>(
+                groupValue: _fulfillment,
+                onChanged: (v) {
+                  if (v == null) return;
+                  setState(() {
+                    _fulfillment = v;
+                    _syncPaymentWithFulfillment();
+                  });
+                },
+                child: Column(
+                  children: [
+                    if (deliveryAvailable)
+                      fulfillmentTile(
+                        FulfillmentType.delivery,
+                        'Delivery',
+                        'Est. ₱${estimatedFee.toStringAsFixed(0)} fee · ${settings.estimatedPrepMinutes} min prep',
+                      ),
+                    if (pickupAvailable)
+                      fulfillmentTile(
+                        FulfillmentType.pickup,
+                        'Pickup',
+                        'No delivery fee — pick up at the store',
+                      ),
+                    if (scheduledAvailable)
+                      fulfillmentTile(
+                        FulfillmentType.scheduled,
+                        'Scheduled Delivery',
+                        'Choose a future date and time',
+                      ),
+                  ],
+                ),
               ),
-            ),
+              if (_fulfillment == FulfillmentType.delivery ||
+                  _fulfillment == FulfillmentType.scheduled)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    'Fee is an estimate (${distanceKm.toStringAsFixed(1)} km) — the final amount is confirmed when you place the order.',
+                    style: const TextStyle(color: AppColors.textSecondary, fontSize: 11),
+                  ),
+                ),
+            ],
             if (_fulfillment == FulfillmentType.scheduled) ...[
               const SizedBox(height: 8),
               OutlinedButton.icon(
@@ -403,11 +469,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: PrimaryButton(
-            label: location.activeAddress == null && _fulfillment != FulfillmentType.pickup
-                ? 'Add a delivery address to continue'
-                : 'Place Order · ₱${total.toStringAsFixed(0)}',
+            label: _fulfillment == null
+                ? 'No fulfillment option available'
+                : location.activeAddress == null && _fulfillment != FulfillmentType.pickup
+                    ? 'Add a delivery address to continue'
+                    : 'Place Order · ₱${total.toStringAsFixed(0)}',
             loading: _placing,
-            onPressed: _placeOrder,
+            onPressed: _fulfillment == null ? null : _placeOrder,
           ),
         ),
       ),

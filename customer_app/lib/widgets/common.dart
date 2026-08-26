@@ -166,11 +166,26 @@ class PrimaryButton extends StatelessWidget {
 
 class RatingStars extends StatelessWidget {
   final double rating;
+  final int totalReviews;
   final double size;
-  const RatingStars({super.key, required this.rating, this.size = 14});
+  const RatingStars({
+    super.key,
+    required this.rating,
+    this.totalReviews = 0,
+    this.size = 14,
+  });
 
   @override
   Widget build(BuildContext context) {
+    // A store with no reviews has no rating yet — showing "0.0" reads as
+    // worst-rated. Say what's true instead.
+    if (totalReviews <= 0) {
+      return Text('New',
+          style: TextStyle(
+              fontSize: size * 0.85,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textSecondary));
+    }
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [

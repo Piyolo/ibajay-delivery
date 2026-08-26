@@ -46,8 +46,14 @@ class AuthProvider extends ChangeNotifier {
   String? lastAuthError;
 
   bool get hasSavedLocation => _hasSavedLocation;
-  bool _hasSavedLocation = false;  // In-flight registration / reset state (shared by the OTP + password steps)
+  bool _hasSavedLocation = false;
+
+  // In-flight registration / reset state (shared by the OTP + password
+  // steps). The name/mobile are kept so a resend re-issues the OTP for the
+  // SAME details — currentUser is still null until registration completes.
   String? _pendingEmail;
+  String? _pendingFullName;
+  String? _pendingMobileNumber;
   _PendingFlow _pendingFlow = _PendingFlow.registration;
 
   /// Restores any previously saved session. Call once at app start
@@ -114,6 +120,8 @@ class AuthProvider extends ChangeNotifier {
   }) async {
     lastAuthError = null;
     _pendingEmail = email;
+    _pendingFullName = fullName;
+    _pendingMobileNumber = mobileNumber;
     _pendingFlow = _PendingFlow.registration;
     try {
       await api.registerStart(fullName: fullName, mobileNumber: mobileNumber, email: email);
@@ -145,10 +153,12 @@ class AuthProvider extends ChangeNotifier {
       if (_pendingFlow == _PendingFlow.passwordReset) {
         await api.forgotPasswordStart(_pendingEmail ?? '');
       } else {
-        // register/start re-issues a fresh OTP for the same details.
+        // register/start re-issues a fresh OTP for the same details the
+        // user typed at step 1 (kept in pending fields — currentUser only
+        // exists after registration completes).
         await api.registerStart(
-          fullName: currentUser?.fullName ?? 'Customer',
-          mobileNumber: currentUser?.mobileNumber ?? '',
+          fullName: _pendingFullName ?? currentUser?.fullName ?? 'Customer',
+          mobileNumber: _pendingMobileNumber ?? currentUser?.mobileNumber ?? '',
           email: _pendingEmail ?? '',
         );
       }

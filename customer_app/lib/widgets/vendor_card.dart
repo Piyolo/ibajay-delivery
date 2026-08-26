@@ -71,7 +71,7 @@ class VendorCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Row(
                       children: [
-                        RatingStars(rating: vendor.rating),
+                        RatingStars(rating: vendor.rating, totalReviews: vendor.totalReviews),
                         const SizedBox(width: 8),
                         Text('(${vendor.totalReviews})',
                             style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),

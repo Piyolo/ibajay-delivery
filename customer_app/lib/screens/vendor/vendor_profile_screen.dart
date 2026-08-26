@@ -106,7 +106,7 @@ class VendorProfileScreen extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        RatingStars(rating: vendor.rating),
+                        RatingStars(rating: vendor.rating, totalReviews: vendor.totalReviews),
                         const SizedBox(width: 8),
                         Text('(${vendor.totalReviews} reviews)',
                             style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),

@@ -164,10 +164,17 @@ class _LocationSetupScreenState extends State<LocationSetupScreen> {
     if (!mounted) return;
     context.read<AuthProvider>().markLocationSaved();
     if (!mounted) return;
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const MainShell()),
-      (route) => false,
-    );
+    // Onboarding (no way back): go to the app shell. Opened mid-session
+    // from the home address bar: just pop — home rebuilds from the
+    // provider, and the nav stack stays intact.
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    } else {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const MainShell()),
+        (route) => false,
+      );
+    }
   }
 
   @override

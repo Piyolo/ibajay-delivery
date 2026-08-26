@@ -154,6 +154,22 @@ class VendorProvider extends ChangeNotifier {
     return distanceKm <= settings.deliveryRadiusKm;
   }
 
+  /// Whether [vendor] can deliver to a customer at [barangay]/[lat]/[lng].
+  /// Same rule as browse filtering, exposed for checkout so delivery can't
+  /// be offered to addresses the store doesn't cover.
+  bool servesCustomer(
+    VendorProfile vendor, {
+    required String barangay,
+    required double lat,
+    required double lng,
+  }) {
+    return _servesCustomer(
+      vendor,
+      barangay,
+      _distanceKm(lat, lng, vendor.latitude, vendor.longitude),
+    );
+  }
+
   void setSearch(String query) {
     searchQuery = query;
     notifyListeners();

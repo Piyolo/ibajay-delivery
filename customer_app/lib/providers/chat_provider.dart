@@ -229,6 +229,17 @@ class ChatProvider extends ChangeNotifier {
   /// Call when leaving the chat screen.
   Future<void> disconnect() => _closeSocket();
 
+  /// Clears every trace of this account's conversations — used on sign-out
+  /// so another account on the same device never sees them.
+  Future<void> reset() async {
+    await _closeSocket();
+    _threads.clear();
+    _openThreads.clear();
+    _myUserId = 'me';
+    lastError = null;
+    notifyListeners();
+  }
+
   void sendMessage(String threadId, {String? content, String? imageUrl}) {
     final thread = threadById(threadId);
     if (thread == null) return;
@@ -261,13 +272,22 @@ class ChatProvider extends ChangeNotifier {
   void _appendMessage(String threadId, ChatMessage message) {
     final thread = threadById(threadId);
     if (thread == null) return;
-    // Skip echoes of my own optimistic bubble (same sender + content).
+    // The backend echoes my own WS sends back to me. When the echo matches
+    // an optimistic bubble sent just now, REPLACE that bubble with the
+    // server copy instead of dropping the message — dropping it would eat
+    // legitimate repeats ("ok" twice in a row).
     if (message.fromMe) {
-      final hasSimilar = thread.messages.any((m) =>
+      final index = thread.messages.indexWhere((m) =>
           m.fromMe &&
+          m.id.startsWith('local_') &&
           m.content == message.content &&
+          m.imageUrl == message.imageUrl &&
           DateTime.now().difference(m.createdAt).inSeconds < 10);
-      if (hasSimilar) return;
+      if (index >= 0) {
+        thread.messages[index] = message;
+        notifyListeners();
+        return;
+      }
     }
     thread.messages.add(message);
     notifyListeners();

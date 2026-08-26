@@ -69,6 +69,9 @@ class _IbajayEatsAppState extends State<IbajayEatsApp> {
       _location.detachUser();
       _favorites.detachUser();
       _orders.stopWatching();
+      // Cart and conversations belong to the account too.
+      _cart.clear();
+      _chat.reset();
     }
   }
 

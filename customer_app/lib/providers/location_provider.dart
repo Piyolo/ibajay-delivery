@@ -187,13 +187,21 @@ class LocationProvider extends ChangeNotifier {
     await _persist();
   }
 
-  /// Convenience for the initial "Location Setup" onboarding step.
+  /// Convenience for the initial "Location Setup" step. Re-saving REPLACES
+  /// the existing Home entry/entries instead of stacking duplicates — the
+  /// backend has no address-update endpoint, so replacement is
+  /// delete-then-create with the fresh pick becoming active.
   Future<void> saveInitialLocation({
     required String fullAddress,
     required String barangay,
     required double lat,
     required double lng,
   }) async {
+    final staleHomes =
+        _addresses.where((a) => a.label.toLowerCase() == 'home').map((a) => a.id).toList();
+    for (final id in staleHomes) {
+      await removeAddress(id);
+    }
     await addAddress(SavedAddress(
       id: 'addr_${DateTime.now().millisecondsSinceEpoch}',
       label: 'Home',

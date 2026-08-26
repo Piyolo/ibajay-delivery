@@ -60,7 +60,7 @@ class VendorCardCompact extends StatelessWidget {
                   style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
                 ),
                 const SizedBox(height: 4),
-                RatingStars(rating: vendor.rating, size: 12),
+                RatingStars(rating: vendor.rating, totalReviews: vendor.totalReviews, size: 12),
               ],
             ),
           ),

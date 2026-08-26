@@ -1,0 +1,38 @@
+/**
+ * Sample marketplace content for the homepage scene.
+ * Everything here is ILLUSTRATIVE — these are not real businesses, prices,
+ * or ratings. Every card that renders this data carries a visible
+ * "sample" marker so nobody mistakes it for a live listing.
+ */
+
+export type DemoFood = {
+  name: string
+  store: string
+  price: string
+  emoji: string
+  tint: string
+}
+
+export type DemoVendor = {
+  kind: string
+  blurb: string
+  mode: 'delivery' | 'pickup'
+  emoji: string
+  tint: string
+}
+
+export const DEMO_FOOD: DemoFood[] = [
+  { name: 'Chicken Adobo', store: 'Carinderia', price: '₱65 / order', emoji: '🍗', tint: '#E85D2A' },
+  { name: 'Burger w/ egg', store: 'Food stall', price: '₱45', emoji: '🍔', tint: '#FFB845' },
+  { name: 'Halo-halo', store: 'Dessert stand', price: '₱55', emoji: '🍨', tint: '#2AA184' },
+  { name: 'Brown sugar milk tea', store: 'Milk tea spot', price: '₱70', emoji: '🧋', tint: '#C98A5B' },
+  { name: 'Pandesal (6 pcs)', store: 'Bakery', price: '₱25', emoji: '🥖', tint: '#E0A72E' },
+]
+
+export const DEMO_VENDORS: DemoVendor[] = [
+  { kind: 'Carinderia', blurb: 'Home-style ulam, changes daily', mode: 'delivery', emoji: '🍲', tint: '#E85D2A' },
+  { kind: 'Bakery', blurb: 'Fresh pandesal every morning', mode: 'pickup', emoji: '🥖', tint: '#E0A72E' },
+  { kind: 'Cafe', blurb: 'Coffee, snacks, and wifi', mode: 'pickup', emoji: '☕', tint: '#8A5CF6' },
+  { kind: 'Milk Tea', blurb: 'Brown sugar, okinawa, wintermelon', mode: 'delivery', emoji: '🧋', tint: '#C98A5B' },
+  { kind: 'Restaurant', blurb: 'Family meals and party trays', mode: 'delivery', emoji: '🍽️', tint: '#2AA184' },
+]

@@ -17,48 +17,48 @@ const icon = (path: ReactNode) => (
 
 const CARDS: Card[] = [
   {
-    title: 'Live order tracking',
-    body: 'A 7-step status engine keeps customers and vendors in sync — pushed instantly over WebSockets. Live location sharing kicks in only while an order is out for delivery.',
+    title: 'Every store gets a storefront',
+    body: 'Photos, menus, hours, and delivery fees — the same digital presence big chains pay for, available to the carinderia on your street.',
     span: 'md:col-span-2',
     tint: '#E85D2A',
-    icon: icon(<><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 3" /></>),
+    icon: icon(<><path d="M3 9l1.5-5h15L21 9M3 9v11h18V9M3 9h18M9 20v-6h6v6" /></>),
   },
   {
-    title: 'Real-time chat',
-    body: 'Customers and vendors talk it out — extra rice, gate codes, "malapit na po?"',
+    title: 'Vendor delivery or pickup',
+    body: 'You choose at checkout — pick it up yourself on your usual route, or have the vendor\'s own delivery person bring it over.',
     tint: '#FFB845',
-    icon: icon(<><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.6 8.6 0 0 1-3.7-.8L3 20l1-4.9a8.4 8.4 0 1 1 17-3.6z" /></>),
+    icon: icon(<><rect x="3" y="6" width="13" height="10" rx="2" /><path d="M16 9h3l2 3v4h-5z" /><circle cx="7" cy="18" r="1.6" /><circle cx="17.5" cy="18" r="1.6" /></>),
   },
   {
-    title: 'OTP + JWT auth',
-    body: 'Email OTP verification and token sessions for every account.',
-    tint: '#2AA184',
-    icon: icon(<><rect x="4" y="10" width="16" height="10" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></>),
-  },
-  {
-    title: 'Scheduled orders',
-    body: 'Order lunch now, schedule it for the fiesta next week.',
-    tint: '#F07A4E',
-    icon: icon(<><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M8 3v4M16 3v4M3 10h18" /></>),
-  },
-  {
-    title: 'Delivery zones per barangay',
-    body: 'Vendors draw their own coverage — Poblacion to Aparicio — with radius and per-km fees.',
+    title: 'Discovery by barangay',
+    body: 'Find who\'s cooking near you — vendors draw their own coverage from Poblacion to Aparicio, so you only see what actually reaches you.',
     span: 'md:col-span-2',
     tint: '#3378C9',
     icon: icon(<><path d="M12 21s-7-5.5-7-11a7 7 0 0 1 14 0c0 5.5-7 11-7 11z" /><circle cx="12" cy="10" r="2.5" /></>),
   },
   {
-    title: 'Vendor analytics',
-    body: 'Revenue charts, top sellers, and order volume at a glance.',
-    tint: '#8A5CF6',
-    icon: icon(<><path d="M4 19V5M4 19h16" /><path d="M8 15l3-4 3 2 4-6" /></>),
+    title: 'Talk straight to the source',
+    body: 'Customers and vendors chat directly — extra rice, gate codes, "malapit na po?" No call center in between.',
+    tint: '#FFB845',
+    icon: icon(<><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.6 8.6 0 0 1-3.7-.8L3 20l1-4.9a8.4 8.4 0 1 1 17-3.6z" /></>),
   },
   {
-    title: 'Push notifications',
-    body: 'Firebase-powered alerts from "order accepted" to "kain na!"',
+    title: 'Built by locals',
+    body: 'Developed here in Ibajay, for Ibajay — feedback goes to people you can actually bump into at the palengke.',
     tint: '#2AA184',
-    icon: icon(<><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M10 21a2 2 0 0 0 4 0" /></>),
+    icon: icon(<><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></>),
+  },
+  {
+    title: 'Room to grow together',
+    body: 'Food first — then drinks, desserts, and other local products as more of the community joins.',
+    tint: '#8A5CF6',
+    icon: icon(<><path d="M12 2v20M2 12h20" /><circle cx="12" cy="12" r="9" opacity="0.35" /></>),
+  },
+  {
+    title: 'Track every order',
+    body: 'A 7-step live status keeps customers and vendors in sync, pushed instantly over WebSockets.',
+    tint: '#E85D2A',
+    icon: icon(<><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 3" /></>),
   },
 ]
 
@@ -73,11 +73,11 @@ export default function BentoGrid() {
           transition={{ duration: 0.8 }}
           className="max-w-2xl"
         >
-          <span className="section-chip">Under the hood</span>
+          <span className="section-chip">One marketplace</span>
           <h2 className="mt-5 font-display text-4xl font-bold tracking-tight sm:text-5xl">
-            Small town app.
+            A small square,
             <br />
-            <span className="text-gradient">Big city engineering.</span>
+            <span className="text-gradient">done properly.</span>
           </h2>
         </motion.div>
 

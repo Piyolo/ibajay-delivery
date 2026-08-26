@@ -1,12 +1,12 @@
 const ITEMS = [
-  'Order',
-  'Track live',
-  'Chat with vendors',
-  'Pickup',
-  'Scheduled delivery',
-  'Menu manager',
-  'Sales analytics',
-  'OTP-secured',
+  'Built for Ibajay',
+  'Carinderias',
+  'Bakeries',
+  'Food stalls',
+  'Order local',
+  'Pickup or vendor delivery',
+  'Support local businesses',
+  'One town, one marketplace',
 ]
 
 export default function Marquee() {

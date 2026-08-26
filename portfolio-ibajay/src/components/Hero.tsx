@@ -43,7 +43,7 @@ export default function Hero() {
               <span className="relative inline-flex h-2 w-2 rounded-full bg-ember" />
             </span>
             <span className="text-xs font-medium tracking-wide text-white/80">
-              Launching soon in Ibajay, Aklan — join the waitlist
+              Pre-launch beta · Built for Ibajay, Aklan
             </span>
           </motion.div>
 
@@ -51,18 +51,18 @@ export default function Hero() {
             variants={rise}
             className="font-display text-[13vw] leading-[0.95] font-bold tracking-tight sm:text-7xl lg:text-[5.4rem]"
           >
-            Sarap,
+            Built for
             <br />
-            <span className="text-gradient">delivered.</span>
+            <span className="text-gradient">Ibajay.</span>
           </motion.h1>
 
           <motion.p
             variants={rise}
             className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-white/60 sm:text-lg lg:mx-0"
           >
-            One marketplace for the food you already love — carinderias, burger joints,
-            dessert stands. Order from local stores, track your order live, and chat with
-            vendors while they run their business from one app.
+            A digital front door for our town's food community. Discover the
+            carinderias, bakeries, and food stalls around you — order for pickup or have
+            the vendor deliver — all in one place made by locals, for locals.
           </motion.p>
 
           <motion.div variants={rise} className="mt-9 flex flex-wrap items-center justify-center gap-4 lg:justify-start">
@@ -70,14 +70,14 @@ export default function Hero() {
               href="#customer"
               className="group relative overflow-hidden rounded-full bg-gradient-to-r from-ember to-ember-dark px-8 py-4 text-sm font-semibold text-white transition-all duration-300 hover:-translate-y-0.5 hover:shadow-glow"
             >
-              <span className="relative z-10">Explore the apps</span>
+              <span className="relative z-10">Discover local food</span>
               <span className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/25 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
             </a>
             <a
               href="#vendor"
               className="rounded-full border border-white/15 bg-white/[0.03] px-8 py-4 text-sm font-semibold text-white/85 backdrop-blur transition-all duration-300 hover:border-moss-bright/50 hover:bg-moss/15 hover:text-white"
             >
-              Sell on Ibajay Eats
+              Run a local business?
             </a>
           </motion.div>
 
@@ -86,13 +86,13 @@ export default function Hero() {
             className="mt-12 flex items-center justify-center gap-x-8 gap-y-3 text-sm text-white/45 lg:justify-start"
           >
             <span className="flex items-center gap-2">
-              <span className="h-1.5 w-1.5 rounded-full bg-ember" /> Live order tracking
+              <span className="h-1.5 w-1.5 rounded-full bg-ember" /> Pickup or vendor delivery
             </span>
             <span className="flex items-center gap-2">
-              <span className="h-1.5 w-1.5 rounded-full bg-gold" /> Real-time vendor chat
+              <span className="h-1.5 w-1.5 rounded-full bg-gold" /> Local businesses, front and center
             </span>
             <span className="flex items-center gap-2">
-              <span className="h-1.5 w-1.5 rounded-full bg-moss-bright" /> Built for barangays
+              <span className="h-1.5 w-1.5 rounded-full bg-moss-bright" /> Made in Ibajay, for Ibajay
             </span>
           </motion.div>
         </motion.div>
@@ -131,8 +131,8 @@ export default function Hero() {
               className="absolute -right-20 bottom-20 animate-float"
             >
               <div className="glass rounded-2xl px-4 py-3 shadow-xl">
-                <p className="text-[10px] uppercase tracking-wider text-white/50">Aling Nena's</p>
-                <p className="mt-0.5 text-sm font-bold text-gold">★ 4.7 · Open</p>
+                <p className="text-[10px] uppercase tracking-wider text-white/50">Sample storefront</p>
+                <p className="mt-0.5 text-sm font-bold text-gold">Your carinderia, listed here</p>
               </div>
             </motion.div>
           </div>

@@ -27,13 +27,13 @@ import { scrollState } from './lib/scroll'
 
 const CUSTOMER_STEPS = [
   {
-    title: 'Discover local stores',
-    body: 'Browse verified carinderias and food stalls near you — filter by category, check ratings, opening hours, and delivery fees before you even get hungry.',
+    title: 'Meet your local stores',
+    body: 'Browse carinderias, bakeries, and food stalls from around town — see their menus, opening hours, and delivery fees before you even get hungry.',
     screen: <CustomerHome />,
   },
   {
     title: 'Build your order',
-    body: 'Tap into any dish for photos, descriptions, and extras like extra rice or sauce. Prices update live as you customize — no checkout surprises.',
+    body: 'Tap into any dish for photos, descriptions, and extras like extra rice or sauce. Choose pickup or vendor delivery at checkout — prices update live as you customize.',
     screen: <FoodDetail />,
   },
   {
@@ -139,9 +139,9 @@ export default function App() {
           chipClass=""
           heading={
             <>
-              Your whole town,
+              Discover the food
               <br />
-              one tap away.
+              already around you.
             </>
           }
           accent="ember"
@@ -154,9 +154,9 @@ export default function App() {
           chipClass="section-chip--moss"
           heading={
             <>
-              The POS your
+              Your carinderia,
               <br />
-              carinderia deserves.
+              on the town square.
             </>
           }
           accent="moss"

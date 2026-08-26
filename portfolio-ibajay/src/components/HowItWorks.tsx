@@ -43,8 +43,8 @@ export default function HowItWorks() {
           </h2>
           <p className="mx-auto mt-4 max-w-xl text-white/55">
             Every order moves through seven live statuses — synced in real time between
-            customer and vendor over WebSockets. Delivery is handled by the vendor
-            themselves, or you pick the order up.
+            customer and vendor over WebSockets. You choose: pick the order up yourself,
+            or the vendor's own delivery person brings it to you.
           </p>
         </motion.div>
 

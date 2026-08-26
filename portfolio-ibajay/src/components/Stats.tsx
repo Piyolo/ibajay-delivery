@@ -9,10 +9,10 @@ type Stat = {
 }
 
 const STATS: Stat[] = [
-  { value: 2, suffix: '', label: 'Mobile apps — customer & vendor', color: '#F07A4E' },
-  { value: 7, suffix: '-step', label: 'Live order status tracking', color: '#FFB845' },
-  { value: 2, suffix: '', label: 'Ways to get your food — vendor delivery or pickup', color: '#2AA184' },
-  { value: 1, suffix: '', label: 'Town we\'re built for: Ibajay, Aklan', color: '#F07A4E' },
+  { value: 1, suffix: '', label: 'Town at the center of everything: Ibajay', color: '#F07A4E' },
+  { value: 2, suffix: '', label: 'Ways your food reaches you — vendor delivery or pickup', color: '#FFB845' },
+  { value: 100, suffix: '%', label: 'Of the stores on here are local', color: '#2AA184' },
+  { value: 0, suffix: '', label: 'Outside corporations — just our community', color: '#F07A4E' },
 ]
 
 function Counter({ stat }: { stat: Stat }) {
@@ -49,6 +49,7 @@ export default function Stats() {
           transition={{ duration: 0.8 }}
           className="grid grid-cols-2 gap-x-6 gap-y-12 lg:grid-cols-4"
         >
+          {/* Marketplace facts — true by design, no invented launch metrics */}
           {STATS.map((s) => (
             <div key={s.label} className="text-center lg:text-left">
               <Counter stat={s} />

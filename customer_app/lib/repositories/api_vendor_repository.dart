@@ -1,10 +1,7 @@
-import 'dart:developer' as dev;
-
 import '../constants/location_constants.dart';
 import '../models/review.dart';
 import '../models/vendor.dart';
 import '../services/api_client.dart';
-import 'mock_vendor_repository.dart';
 import 'vendor_repository.dart';
 
 /// Live implementation of [VendorRepository] backed by the FastAPI backend
@@ -16,16 +13,13 @@ import 'vendor_repository.dart';
 /// Foods" and search logic. Ibajay is small — a handful of parallel
 /// profile requests is fine.
 ///
-/// If the backend is unreachable at the transport level (server off, no
-/// network, dev machine asleep), it falls back to [MockVendorRepository]
-/// so the app stays browsable offline; a warning is logged. HTTP-level
-/// failures (4xx/5xx) are rethrown — masking a broken API with fabricated
-/// stores would hide real problems.
+/// All failures are rethrown so the UI shows an honest error state —
+/// masking connectivity problems with fabricated stores would misrepresent
+/// the platform during beta.
 class ApiVendorRepository implements VendorRepository {
   ApiVendorRepository({ApiClient? client}) : _client = client ?? ApiClient();
 
   final ApiClient _client;
-  final MockVendorRepository _fallback = MockVendorRepository();
 
   @override
   Future<List<VendorProfile>> fetchVendors({double? refLat, double? refLng}) async {
@@ -53,10 +47,10 @@ class ApiVendorRepository implements VendorRepository {
         }),
       );
       return profiles;
-    } on ApiException catch (error) {
-      if (error.statusCode != null) rethrow;
-      dev.log('API unreachable, falling back to mock vendor data: $error');
-      return _fallback.fetchVendors();
+    } on ApiException {
+      // Transport or HTTP failure alike: surface it. Never substitute
+      // fabricated stores for the real (possibly empty) marketplace.
+      rethrow;
     }
   }
 

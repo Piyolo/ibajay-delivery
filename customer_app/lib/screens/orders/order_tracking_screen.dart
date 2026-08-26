@@ -27,12 +27,18 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   void initState() {
     super.initState();
     // Deep-opened or freshly restored session: fetch from the API if the
-    // order isn't already in memory.
-    if (_orders.byId(widget.orderId) == null) {
-      _orders.refreshOrder(widget.orderId);
+    // order isn't already in memory. Live tracking starts only once the
+    // fetched/known status is actually out_for_delivery.
+    final existing = _orders.byId(widget.orderId);
+    if (existing == null) {
+      _orders.refreshOrder(widget.orderId).then((fresh) {
+        if (fresh?.status == OrderStatus.outForDelivery) {
+          _orders.watchOrder(widget.orderId);
+        }
+      });
+    } else {
+      _orders.watchOrder(widget.orderId);
     }
-    // Live status + GPS pings while this screen is open.
-    _orders.watchOrder(widget.orderId);
     _checkReviewed();
   }
 
@@ -190,19 +196,29 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                         bottom: 12,
                         left: 12,
                         right: 12,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: AppColors.primary,
-                            borderRadius: BorderRadius.circular(AppRadius.pill),
-                          ),
-                          child: Text(
-                            orderProvider.riderLat != null
-                                ? 'Rider location · ${orderProvider.riderLat!.toStringAsFixed(4)}, ${orderProvider.riderLng!.toStringAsFixed(4)}'
-                                : 'Vendor is on the way',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+                        child: GestureDetector(
+                          onTap: orderProvider.trackingError != null
+                              ? () => orderProvider.watchOrder(order.id)
+                              : null,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: orderProvider.trackingError != null
+                                  ? AppColors.warning
+                                  : AppColors.primary,
+                              borderRadius: BorderRadius.circular(AppRadius.pill),
+                            ),
+                            child: Text(
+                              orderProvider.trackingError ??
+                                  (orderProvider.riderLat != null
+                                      ? 'Live location · ${orderProvider.riderLat!.toStringAsFixed(4)}, ${orderProvider.riderLng!.toStringAsFixed(4)}'
+                                      : 'Your order is on the way'),
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600),
+                            ),
                           ),
                         ),
                       ),

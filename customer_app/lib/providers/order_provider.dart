@@ -38,6 +38,10 @@ class OrderProvider extends ChangeNotifier {
   double? riderLat;
   double? riderLng;
 
+  /// Set when the live-tracking socket drops or fails; the tracking screen
+  /// shows it instead of pretending pings are still flowing. Null = healthy.
+  String? trackingError;
+
   List<CustomerOrder> get orders => List.unmodifiable(_orders.reversed);
   List<CustomerOrder> get activeOrders => orders.where((o) => o.isActive).toList();
   List<CustomerOrder> get pastOrders => orders.where((o) => !o.isActive).toList();
@@ -202,13 +206,19 @@ class OrderProvider extends ChangeNotifier {
 
   // ---- Live tracking ----
 
-  /// Subscribes to the order's tracking WebSocket while the tracking
-  /// screen is open. Safe to call again with a different order — the old
-  /// socket is closed first.
+  /// Subscribes to the order's tracking WebSocket — but ONLY while the
+  /// order is out for delivery. Ibajay Eats has no fleet of its own: live
+  /// location exists solely so the customer can follow the VENDOR's
+  /// delivery during an active delivery, and it must not run for orders
+  /// sitting in any other state. Safe to call again — the old socket is
+  /// closed first.
   void watchOrder(String orderId) {
     stopWatching();
     final token = _client.authToken;
     if (token == null || token.isEmpty) return;
+
+    final order = byId(orderId);
+    if (order == null || order.status != OrderStatus.outForDelivery) return;
 
     final wsScheme =
         _client.baseUrl.startsWith('https') ? 'wss' : 'ws';
@@ -218,19 +228,28 @@ class OrderProvider extends ChangeNotifier {
     final uri = Uri.parse('$wsScheme://$host/ws/orders/$orderId/track?token=$token');
 
     _watchedOrderId = orderId;
+    trackingError = null;
     try {
       _watchChannel = WebSocketChannel.connect(uri);
       _watchSub = _watchChannel!.stream.listen(
         _onSocketMessage,
-        onError: (_) {},
-        onDone: () {},
+        onError: (_) {
+          // Surface the drop instead of leaving a frozen pin that looks
+          // alive; the screen offers a retry.
+          if (_watchedOrderId == orderId) {
+            trackingError = 'Live tracking was interrupted';
+            notifyListeners();
+          }
+        },
         cancelOnError: true,
       );
     } catch (_) {
       // Socket failures degrade gracefully: the tracking screen still
-      // polls nothing but shows the last known state.
+      // shows the last known state, with a retry affordance.
       _watchChannel = null;
       _watchedOrderId = null;
+      trackingError = 'Live tracking is unavailable right now';
+      notifyListeners();
     }
   }
 
@@ -251,9 +270,14 @@ class OrderProvider extends ChangeNotifier {
         final statusKey = msg['status'] as String?;
         if (order != null && statusKey != null) {
           order.status = orderStatusFromKey(statusKey);
+          // The moment the delivery ends, live tracking ends with it.
+          if (order.status != OrderStatus.outForDelivery) {
+            stopWatching();
+          }
           notifyListeners();
         }
       case 'gps_update':
+        trackingError = null;
         riderLat = (msg['latitude'] as num?)?.toDouble();
         riderLng = (msg['longitude'] as num?)?.toDouble();
         notifyListeners();

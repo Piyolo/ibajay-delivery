@@ -131,6 +131,34 @@ class AuthApiService {
     }
   }
 
+  /// POST /auth/forgot-password/start — emails an OTP to [email].
+  Future<void> forgotPasswordStart(String email) async {
+    try {
+      await _client.post('/auth/forgot-password/start', body: {'email': email});
+    } on ApiException catch (e) {
+      throw AuthException(e.message, statusCode: e.statusCode);
+    }
+  }
+
+  /// POST /auth/forgot-password/reset — verifies the emailed OTP and sets
+  /// the new password.
+  Future<void> resetPassword({
+    required String email,
+    required String otpCode,
+    required String newPassword,
+  }) async {
+    try {
+      await _client.post('/auth/forgot-password/reset', body: {
+        'email': email,
+        'otp_code': otpCode,
+        'new_password': newPassword,
+        'confirm_password': newPassword,
+      });
+    } on ApiException catch (e) {
+      throw AuthException(e.message, statusCode: e.statusCode);
+    }
+  }
+
   Future<AuthTokens> _tokened(Future<dynamic> Function() call) async {
     try {
       final json = await call() as Map<String, dynamic>;

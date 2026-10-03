@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/order.dart';
+import '../../models/vendor.dart';
 import '../../providers/cart_provider.dart';
 import '../../providers/order_provider.dart';
 import '../../providers/vendor_provider.dart';
@@ -9,8 +10,23 @@ import '../../widgets/common.dart';
 import '../../widgets/status_badge.dart';
 import 'order_tracking_screen.dart';
 
-class OrderHistoryScreen extends StatelessWidget {
+class OrderHistoryScreen extends StatefulWidget {
   const OrderHistoryScreen({super.key});
+
+  @override
+  State<OrderHistoryScreen> createState() => _OrderHistoryScreenState();
+}
+
+class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // History lives on the backend — pull the latest every time the
+    // screen opens (also covers orders placed on another device).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<OrderProvider>().loadOrders();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -26,7 +42,7 @@ class OrderHistoryScreen extends StatelessWidget {
             tabs: [Tab(text: 'Active'), Tab(text: 'History')],
           ),
         ),
-        body: TabBarView(
+        body: const TabBarView(
           children: [_ActiveOrdersTab(), _PastOrdersTab()],
         ),
       ),
@@ -35,14 +51,24 @@ class OrderHistoryScreen extends StatelessWidget {
 }
 
 class _ActiveOrdersTab extends StatelessWidget {
+  const _ActiveOrdersTab();
+
   @override
   Widget build(BuildContext context) {
-    final orders = context.watch<OrderProvider>().activeOrders;
+    final provider = context.watch<OrderProvider>();
+    final orders = provider.activeOrders;
+    if (provider.isLoading && orders.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
     if (orders.isEmpty) {
-      return const EmptyState(
+      return EmptyState(
         icon: Icons.receipt_long_outlined,
-        title: 'No active orders',
-        subtitle: 'Your ongoing orders will show up here.',
+        title: provider.lastError != null ? 'Could not load your orders' : 'No active orders',
+        subtitle: provider.lastError ?? 'Your ongoing orders will show up here.',
+        action: OutlinedButton(
+          onPressed: () => context.read<OrderProvider>().loadOrders(),
+          child: const Text('Retry'),
+        ),
       );
     }
     return ListView.separated(
@@ -55,14 +81,21 @@ class _ActiveOrdersTab extends StatelessWidget {
 }
 
 class _PastOrdersTab extends StatelessWidget {
+  const _PastOrdersTab();
+
   @override
   Widget build(BuildContext context) {
-    final orders = context.watch<OrderProvider>().pastOrders;
+    final provider = context.watch<OrderProvider>();
+    final orders = provider.pastOrders;
+    if (provider.isLoading && orders.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
     if (orders.isEmpty) {
-      return const EmptyState(
+      return EmptyState(
         icon: Icons.history,
-        title: 'No past orders yet',
-        subtitle: 'Completed and cancelled orders will show up here.',
+        title: provider.lastError != null ? 'Could not load your orders' : 'No past orders yet',
+        subtitle: provider.lastError ?? 'Completed and cancelled orders will show up here.',
+        action: OutlinedButton(onPressed: () => context.read<OrderProvider>().loadOrders(), child: const Text('Retry')),
       );
     }
     return ListView.separated(
@@ -81,18 +114,37 @@ class _OrderCard extends StatelessWidget {
 
   void _reorder(BuildContext context) {
     final vendor = context.read<VendorProvider>().vendorById(order.vendorId);
-    if (vendor == null) return;
+    if (vendor == null || vendor.menu.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("This store's menu is unavailable right now")),
+      );
+      return;
+    }
     final cartProvider = context.read<CartProvider>();
     cartProvider.clear();
+    var added = 0;
     for (final line in order.items) {
-      final food = vendor.menu.firstWhere(
-        (f) => f.name == line.foodName,
-        orElse: () => vendor.menu.first,
-      );
+      // Match by exact name and skip unknown items instead of silently
+      // adding a wrong substitute.
+      FoodItemRef? food;
+      for (final f in vendor.menu) {
+        if (f.name == line.foodName) {
+          food = f;
+          break;
+        }
+      }
+      if (food == null || !food.isAvailable) continue;
       cartProvider.addItem(foodItem: food, vendor: vendor, quantity: line.quantity);
+      added++;
+    }
+    if (added == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('None of these items are available anymore')),
+      );
+      return;
     }
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('${order.items.length} item(s) added to your cart from ${vendor.storeName}')),
+      SnackBar(content: Text('$added item(s) added to your cart from ${vendor.storeName}')),
     );
   }
 

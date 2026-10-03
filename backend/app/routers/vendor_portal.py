@@ -14,6 +14,7 @@ from app.core.deps import require_vendor
 from app.models.enums import OrderStatus
 from app.models.food import FoodCategory, FoodItem, FoodImage, FoodOption, FoodOptionChoice
 from app.models.order import Order
+from app.models.social import Promotion
 from app.models.user import User
 from app.models.vendor import Vendor, VendorCategory, VendorDeliverySettings, VendorOperatingHours
 from app.schemas.vendor_portal import (
@@ -25,6 +26,9 @@ from app.schemas.vendor_portal import (
     FoodItemUpdate,
     HoursUpdate,
     OperatingHourIn,
+    PromotionCreate,
+    PromotionOut,
+    PromotionUpdate,
     StoreStatusUpdate,
     VendorMeUpdate,
     VendorStoreCreate,
@@ -82,6 +86,8 @@ async def create_store(
         latitude=payload.latitude,
         longitude=payload.longitude,
         contact_number=payload.contact_number or user.mobile_number,
+        logo_url=payload.logo_url,
+        banner_url=payload.banner_url,
         is_open=False,
     )
     db.add(vendor)
@@ -416,6 +422,95 @@ async def analytics(user: User = Depends(require_vendor), db: AsyncSession = Dep
         cancelled_today=sum(1 for o in today_orders if o.status == OrderStatus.cancelled),
         week=week,
     )
+
+
+# ---------------------------------------------------------------------------
+# Promotions
+# ---------------------------------------------------------------------------
+
+@router.get("/promotions", response_model=list[PromotionOut])
+async def list_promotions(user: User = Depends(require_vendor), db: AsyncSession = Depends(get_db)):
+    vendor = await _get_vendor(user, db)
+    result = await db.execute(
+        select(Promotion)
+        .where(Promotion.vendor_id == vendor.id)
+        .order_by(Promotion.created_at.desc())
+    )
+    return result.scalars().all()
+
+
+@router.post("/promotions", response_model=PromotionOut, status_code=status.HTTP_201_CREATED)
+async def create_promotion(
+    payload: PromotionCreate,
+    user: User = Depends(require_vendor),
+    db: AsyncSession = Depends(get_db),
+):
+    vendor = await _get_vendor(user, db)
+
+    if payload.discount_type == "percent" and payload.discount_value > 100:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Percentage discount cannot exceed 100%")
+
+    # Promo codes are unique per store.
+    if payload.code:
+        dup = await db.execute(
+            select(Promotion).where(Promotion.vendor_id == vendor.id, Promotion.code == payload.code)
+        )
+        if dup.scalar_one_or_none():
+            raise HTTPException(status.HTTP_409_CONFLICT, "You already have a promotion with this code")
+
+    promo = Promotion(
+        vendor_id=vendor.id,
+        title=payload.title,
+        description=payload.description,
+        discount_type=payload.discount_type,
+        discount_value=payload.discount_value,
+        code=payload.code,
+        min_subtotal=payload.min_subtotal,
+        starts_at=payload.starts_at,
+        ends_at=payload.ends_at,
+        is_active=True,
+    )
+    db.add(promo)
+    await db.commit()
+    await db.refresh(promo)
+    return promo
+
+
+@router.patch("/promotions/{promotion_id}", response_model=PromotionOut)
+async def update_promotion(
+    promotion_id: uuid.UUID,
+    payload: PromotionUpdate,
+    user: User = Depends(require_vendor),
+    db: AsyncSession = Depends(get_db),
+):
+    promo = await _own_promotion(promotion_id, user, db)
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(promo, field, value)
+    await db.commit()
+    await db.refresh(promo)
+    return promo
+
+
+@router.delete("/promotions/{promotion_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_promotion(
+    promotion_id: uuid.UUID,
+    user: User = Depends(require_vendor),
+    db: AsyncSession = Depends(get_db),
+):
+    promo = await _own_promotion(promotion_id, user, db)
+    await db.delete(promo)
+    await db.commit()
+
+
+async def _own_promotion(promotion_id: uuid.UUID, user: User, db: AsyncSession) -> Promotion:
+    vendor = await _get_vendor(user, db)
+    result = await db.execute(
+        select(Promotion).where(Promotion.id == promotion_id, Promotion.vendor_id == vendor.id)
+    )
+    promo = result.scalar_one_or_none()
+    if not promo:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Promotion not found")
+    return promo
 
 
 # ---------------------------------------------------------------------------

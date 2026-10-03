@@ -36,7 +36,7 @@ class MockVendorRepository implements VendorRepository {
   }
 
   @override
-  Future<List<VendorProfile>> fetchVendors() async {
+  Future<List<VendorProfile>> fetchVendors({double? refLat, double? refLng}) async {
     await _ensureLoaded();
     // Simulate real network latency so loading states are actually exercised.
     await Future.delayed(const Duration(milliseconds: 300));

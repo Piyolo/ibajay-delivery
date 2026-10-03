@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart' as ph;
 import '../../theme/app_theme.dart';
 import '../location/location_setup_screen.dart';
 
+/// Onboarding permissions. "Allow" triggers the REAL Android/iOS system
+/// dialogs — location via Geolocator, notifications via the OS runtime
+/// permission — and reflects the actual grant result.
 class PermissionsScreen extends StatefulWidget {
   const PermissionsScreen({super.key});
 
@@ -15,6 +20,7 @@ class _PermissionItem {
   final String purpose;
   final bool required;
   bool granted;
+  final Future<bool> Function()? request;
 
   _PermissionItem({
     required this.icon,
@@ -22,44 +28,68 @@ class _PermissionItem {
     required this.purpose,
     required this.required,
     this.granted = false,
+    this.request,
   });
 }
 
 class _PermissionsScreenState extends State<PermissionsScreen> {
-  final List<_PermissionItem> _permissions = [
-    _PermissionItem(
-      icon: Icons.location_on,
-      title: 'Location',
-      purpose: 'Delivery address, nearby stores, and order tracking',
-      required: true,
-    ),
-    _PermissionItem(
-      icon: Icons.notifications_active,
-      title: 'Notifications',
-      purpose: 'Order updates, chat messages, and promotions',
-      required: true,
-    ),
-    _PermissionItem(
-      icon: Icons.wifi,
-      title: 'Internet Access',
-      purpose: 'Required for the app to function',
-      required: true,
-      granted: true,
-    ),
-    _PermissionItem(
-      icon: Icons.phone,
-      title: 'Phone Access',
-      purpose: 'Optional — lets you call a vendor directly',
-      required: false,
-    ),
-  ];
+  late final List<_PermissionItem> _permissions;
+
+  @override
+  void initState() {
+    super.initState();
+    _permissions = [
+      _PermissionItem(
+        icon: Icons.location_on,
+        title: 'Location',
+        purpose: 'Delivery address, nearby stores, and order tracking',
+        required: true,
+        request: _requestLocation,
+      ),
+      _PermissionItem(
+        icon: Icons.notifications_active,
+        title: 'Notifications',
+        purpose: 'Order updates, chat messages, and promotions',
+        required: false,
+        request: () async =>
+            (await ph.Permission.notification.request()) == ph.PermissionStatus.granted,
+      ),
+      _PermissionItem(
+        icon: Icons.wifi,
+        title: 'Internet Access',
+        purpose: 'Required for the app to function',
+        required: true,
+        granted: true,
+      ),
+    ];
+  }
+
+  /// Fires the native location permission dialog and reports the result.
+  Future<bool> _requestLocation() async {
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    return permission == LocationPermission.whileInUse ||
+        permission == LocationPermission.always;
+  }
 
   bool get _allRequiredGranted => _permissions.where((p) => p.required).every((p) => p.granted);
 
-  void _grant(_PermissionItem item) {
-    // In production this triggers the native permission_handler / geolocator
-    // prompts. Here we just flip local state so the flow is fully testable.
-    setState(() => item.granted = true);
+  Future<void> _allow(_PermissionItem item) async {
+    final request = item.request;
+    if (request == null) {
+      setState(() => item.granted = true);
+      return;
+    }
+    final granted = await request();
+    if (!mounted) return;
+    setState(() => item.granted = granted);
+    if (!granted && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('${item.title} permission was not granted — you can enable it in Settings.'),
+      ));
+    }
   }
 
   @override
@@ -124,7 +154,7 @@ class _PermissionsScreenState extends State<PermissionsScreen> {
                             item.granted
                                 ? const Icon(Icons.check_circle, color: AppColors.success)
                                 : TextButton(
-                                    onPressed: () => _grant(item),
+                                    onPressed: () => _allow(item),
                                     child: const Text('Allow'),
                                   ),
                           ],

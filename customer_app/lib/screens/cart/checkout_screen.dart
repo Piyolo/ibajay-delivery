@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../constants/location_constants.dart';
 import '../../models/order.dart';
+import '../../models/vendor.dart';
 import '../../providers/cart_provider.dart';
 import '../../providers/location_provider.dart';
 import '../../providers/order_provider.dart';
 import '../../providers/vendor_provider.dart';
+import '../../services/api_client.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/common.dart';
 import '../orders/order_tracking_screen.dart';
@@ -18,16 +21,59 @@ class CheckoutScreen extends StatefulWidget {
 }
 
 class _CheckoutScreenState extends State<CheckoutScreen> {
-  FulfillmentType _fulfillment = FulfillmentType.delivery;
+  FulfillmentType? _fulfillment;
   PaymentMethod _payment = PaymentMethod.cashOnDelivery;
   DateTime? _scheduledFor;
   final _instructionsController = TextEditingController();
+  final _promoController = TextEditingController();
   bool _placing = false;
+  bool _checkingPromo = false;
+
+  /// Promo validated against the backend: code + applied discount.
+  String? _appliedPromoCode;
+  double _promoDiscount = 0;
+  String? _promoError;
 
   @override
   void dispose() {
     _instructionsController.dispose();
+    _promoController.dispose();
     super.dispose();
+  }
+
+  /// Picks the first fulfillment method the vendor actually offers AND that
+  /// covers the customer's address, so the radio group never starts out
+  /// with a selection that matches no visible tile.
+  void _ensureDefaults({
+    required bool deliveryAvailable,
+    required bool pickupAvailable,
+    required bool scheduledAvailable,
+  }) {
+    if (_fulfillment != null &&
+        ((_fulfillment == FulfillmentType.delivery && deliveryAvailable) ||
+            (_fulfillment == FulfillmentType.pickup && pickupAvailable) ||
+            (_fulfillment == FulfillmentType.scheduled && scheduledAvailable))) {
+      return;
+    }
+    if (deliveryAvailable) {
+      _fulfillment = FulfillmentType.delivery;
+    } else if (pickupAvailable) {
+      _fulfillment = FulfillmentType.pickup;
+    } else if (scheduledAvailable) {
+      _fulfillment = FulfillmentType.scheduled;
+    } else {
+      _fulfillment = null;
+      return;
+    }
+    _syncPaymentWithFulfillment();
+  }
+
+  // Delivery can only be paid COD; pickup only cash-on-pickup — keep the
+  // two radio groups consistent instead of allowing an impossible pair.
+  void _syncPaymentWithFulfillment() {
+    _payment = _fulfillment == FulfillmentType.pickup
+        ? PaymentMethod.cashOnPickup
+        : PaymentMethod.cashOnDelivery;
   }
 
   Future<void> _pickScheduleTime() async {
@@ -45,14 +91,54 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     });
   }
 
+  /// Validates the promo code against the backend and shows the discount.
+  Future<void> _applyPromo(VendorProfile vendor, double subtotal) async {
+    final code = _promoController.text.trim();
+    if (code.isEmpty) return;
+    setState(() {
+      _checkingPromo = true;
+      _promoError = null;
+    });
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final discount = await context
+          .read<OrderProvider>()
+          .validatePromo(vendor: vendor, code: code, subtotal: subtotal);
+      if (!mounted) return;
+      setState(() {
+        _appliedPromoCode = code.toUpperCase();
+        _promoDiscount = discount;
+      });
+      messenger.showSnackBar(SnackBar(content: Text('Promo applied — ₱${discount.toStringAsFixed(0)} off')));
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _promoError = e.message);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _promoError = 'Could not check that code — try again');
+    }
+    if (mounted) setState(() => _checkingPromo = false);
+  }
+
+  void _removePromo() {
+    setState(() {
+      _appliedPromoCode = null;
+      _promoDiscount = 0;
+      _promoController.clear();
+      _promoError = null;
+    });
+  }
+
   Future<void> _placeOrder() async {
     final cartProvider = context.read<CartProvider>();
     final cart = cartProvider.cart;
-    final vendor = context.read<VendorProvider>().vendorById(cart.vendorId!);
-    if (vendor == null) return;
+    if (cart.isEmpty || cart.vendorId == null) return;
 
-    final location = context.read<LocationProvider>();
-    if (_fulfillment != FulfillmentType.pickup && location.activeAddress == null) {
+    final vendor = context.read<VendorProvider>().vendorById(cart.vendorId!);
+    final address = context.read<LocationProvider>().activeAddress;
+    if (vendor == null || _fulfillment == null) return;
+
+    if (_fulfillment != FulfillmentType.pickup && address == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please add a delivery address first')),
       );
@@ -66,25 +152,40 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     }
 
     setState(() => _placing = true);
-    await Future.delayed(const Duration(milliseconds: 600));
+    final orderProvider = context.read<OrderProvider>();
+    CustomerOrder? order;
+    String? errorMessage;
+    try {
+      order = await orderProvider.checkout(
+        cart: cart,
+        vendor: vendor,
+        fulfillmentType: _fulfillment!,
+        paymentMethod: _payment,
+        addressId: address?.id ?? '',
+        deliveryInstructions: _instructionsController.text,
+        scheduledFor: _scheduledFor,
+        promoCode: _appliedPromoCode,
+      );
+    } on ApiException catch (e) {
+      errorMessage = e.message;
+    } catch (_) {
+      errorMessage = 'Could not place your order. Please try again.';
+    }
     if (!mounted) return;
-
-    final order = context.read<OrderProvider>().placeOrder(
-          cart: cart,
-          vendor: vendor,
-          fulfillmentType: _fulfillment,
-          paymentMethod: _payment,
-          deliveryAddress: location.activeAddress?.fullAddress ?? '',
-          destinationLat: location.activeAddress?.latitude,
-          destinationLng: location.activeAddress?.longitude,
-          scheduledFor: _scheduledFor,
-        );
-
-    cartProvider.clear();
     setState(() => _placing = false);
 
+    final placed = order;
+    if (placed == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(errorMessage ?? 'Could not place your order')),
+      );
+      return;
+    }
+
+    cartProvider.clear();
+    if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => OrderTrackingScreen(orderId: order.id)),
+      MaterialPageRoute(builder: (_) => OrderTrackingScreen(orderId: placed.id)),
       (route) => route.isFirst,
     );
   }
@@ -95,38 +196,68 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     final vendor = context.watch<VendorProvider>().vendorById(cart.vendorId ?? '');
     final location = context.watch<LocationProvider>();
 
-    if (vendor == null) {
-      return const Scaffold(body: Center(child: Text('Your cart is empty')));
+    if (vendor == null || cart.isEmpty) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Checkout')),
+        body: EmptyState(
+          icon: Icons.shopping_cart_outlined,
+          title: 'Your cart is empty',
+          subtitle: 'Add items from a store to check out.',
+          action: OutlinedButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Browse stores'),
+          ),
+        ),
+      );
     }
 
     final settings = vendor.deliverySettings;
-    final deliveryFee = _fulfillment == FulfillmentType.pickup ? 0.0 : settings.baseDeliveryFee;
-    final total = cart.subtotal + deliveryFee;
 
-    final fulfillmentTiles = <Widget>[
-      if (settings.deliveryEnabled)
-        RadioListTile<FulfillmentType>(
-          value: FulfillmentType.delivery,
-          title: const Text('Delivery'),
-          subtitle: Text(
-              '₱${settings.baseDeliveryFee.toStringAsFixed(0)} delivery fee · ${settings.estimatedPrepMinutes} min prep'),
-          contentPadding: EdgeInsets.zero,
-        ),
-      if (settings.pickupEnabled)
-        const RadioListTile<FulfillmentType>(
-          value: FulfillmentType.pickup,
-          title: Text('Pickup'),
-          subtitle: Text('No delivery fee — pick up at the store'),
-          contentPadding: EdgeInsets.zero,
-        ),
-      if (settings.scheduledDeliveryEnabled)
-        const RadioListTile<FulfillmentType>(
-          value: FulfillmentType.scheduled,
-          title: Text('Scheduled Delivery'),
-          subtitle: Text('Choose a future date and time'),
-          contentPadding: EdgeInsets.zero,
-        ),
-    ];
+    // Coverage check mirrors browse filtering: a store with delivery areas
+    // must include the customer's barangay, otherwise delivery (regular or
+    // scheduled) isn't offered here even if the store supports it.
+    final vendors = context.read<VendorProvider>();
+    final servesAddress = vendors.servesCustomer(
+      vendor,
+      barangay: location.referenceBarangay,
+      lat: location.referenceLat,
+      lng: location.referenceLng,
+    );
+    final deliveryAvailable = settings.deliveryEnabled && servesAddress;
+    final pickupAvailable = settings.pickupEnabled;
+    final scheduledAvailable = settings.scheduledDeliveryEnabled && servesAddress;
+    _ensureDefaults(
+      deliveryAvailable: deliveryAvailable,
+      pickupAvailable: pickupAvailable,
+      scheduledAvailable: scheduledAvailable,
+    );
+
+    // Honest fee estimate: base + per-km from the store to the active
+    // address. The server recomputes the real fee at checkout.
+    final distanceKm = LocationConstants.haversineKm(
+      location.referenceLat,
+      location.referenceLng,
+      vendor.latitude,
+      vendor.longitude,
+    );
+    final estimatedFee =
+        settings.baseDeliveryFee + settings.perKmFee * distanceKm;
+    final deliveryFee = _fulfillment == FulfillmentType.pickup
+        ? 0.0
+        : (_fulfillment == null ? 0.0 : estimatedFee);
+    final promoDiscount =
+        _appliedPromoCode == null ? 0.0 : _promoDiscount.clamp(0.0, cart.subtotal);
+    final total = (cart.subtotal + deliveryFee - promoDiscount)
+        .clamp(0.0, double.infinity);
+
+    Widget fulfillmentTile(FulfillmentType value, String title, String subtitle) {
+      return RadioListTile<FulfillmentType>(
+        value: value,
+        title: Text(title),
+        subtitle: Text(subtitle),
+        contentPadding: EdgeInsets.zero,
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(title: const Text('Checkout')),
@@ -134,12 +265,67 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            const SectionHeader(title: 'Delivery Method'),
-            RadioGroup<FulfillmentType>(
-              groupValue: _fulfillment,
-              onChanged: (v) => setState(() => _fulfillment = v!),
-              child: Column(children: fulfillmentTiles),
-            ),
+            const SectionHeader(title: 'Fulfillment Method'),
+            if (!deliveryAvailable &&
+                !pickupAvailable &&
+                !scheduledAvailable)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.warning.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                ),
+                child: Text(
+                  location.referenceBarangay.isEmpty
+                      ? "This store has no available fulfillment options right now."
+                      : "This store can't deliver to ${location.referenceBarangay} yet, and pickup is turned off.",
+                  style: const TextStyle(fontSize: 13),
+                ),
+              )
+            else ...[
+              RadioGroup<FulfillmentType>(
+                groupValue: _fulfillment,
+                onChanged: (v) {
+                  if (v == null) return;
+                  setState(() {
+                    _fulfillment = v;
+                    _syncPaymentWithFulfillment();
+                  });
+                },
+                child: Column(
+                  children: [
+                    if (deliveryAvailable)
+                      fulfillmentTile(
+                        FulfillmentType.delivery,
+                        'Delivery',
+                        'Est. ₱${estimatedFee.toStringAsFixed(0)} fee · ${settings.estimatedPrepMinutes} min prep',
+                      ),
+                    if (pickupAvailable)
+                      fulfillmentTile(
+                        FulfillmentType.pickup,
+                        'Pickup',
+                        'No delivery fee — pick up at the store',
+                      ),
+                    if (scheduledAvailable)
+                      fulfillmentTile(
+                        FulfillmentType.scheduled,
+                        'Scheduled Delivery',
+                        'Choose a future date and time',
+                      ),
+                  ],
+                ),
+              ),
+              if (_fulfillment == FulfillmentType.delivery ||
+                  _fulfillment == FulfillmentType.scheduled)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    'Fee is an estimate (${distanceKm.toStringAsFixed(1)} km) — the final amount is confirmed when you place the order.',
+                    style: const TextStyle(color: AppColors.textSecondary, fontSize: 11),
+                  ),
+                ),
+            ],
             if (_fulfillment == FulfillmentType.scheduled) ...[
               const SizedBox(height: 8),
               OutlinedButton.icon(
@@ -178,7 +364,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             const SectionHeader(title: 'Payment Method'),
             RadioGroup<PaymentMethod>(
               groupValue: _payment,
-              onChanged: (v) => setState(() => _payment = v!),
+              onChanged: (v) {
+                if (v == null) return;
+                setState(() => _payment = v);
+              },
               child: Column(
                 children: [
                   RadioListTile<PaymentMethod>(
@@ -215,12 +404,63 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                         )),
                     const Divider(),
                     _summaryRow('Subtotal', cart.subtotal),
-                    _summaryRow('Delivery Fee', deliveryFee),
+                    _summaryRow('Delivery Fee (estimate)', deliveryFee),
+                    if (_appliedPromoCode != null) ...[
+                      _summaryRow('Promo ($_appliedPromoCode)', -promoDiscount),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: _removePromo,
+                          child: const Text('Remove', style: TextStyle(fontSize: 12)),
+                        ),
+                      ),
+                    ],
                     const Divider(),
                     _summaryRow('Total', total, bold: true),
                   ],
                 ),
               ),
+            ),
+            const SizedBox(height: 12),
+            // Promo code entry — validated by the backend before ordering.
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _promoController,
+                    textCapitalization: TextCapitalization.characters,
+                    enabled: _appliedPromoCode == null && !_checkingPromo,
+                    decoration: InputDecoration(
+                      hintText: 'Promo code',
+                      errorText: _promoError,
+                      isDense: true,
+                    ),
+                    onChanged: (_) => setState(() => _promoError = null),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton(
+                  onPressed: (_appliedPromoCode != null || _checkingPromo || cart.isEmpty)
+                      ? null
+                      : () => _applyPromo(vendor, cart.subtotal),
+                  child: _checkingPromo
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Text('Apply'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _instructionsController,
+              decoration: const InputDecoration(
+                labelText: 'Delivery instructions (optional)',
+                hintText: 'e.g. Landmark, gate color, etc.',
+              ),
+              textInputAction: TextInputAction.done,
             ),
           ],
         ),
@@ -229,9 +469,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: PrimaryButton(
-            label: 'Place Order · ₱${total.toStringAsFixed(0)}',
+            label: _fulfillment == null
+                ? 'No fulfillment option available'
+                : location.activeAddress == null && _fulfillment != FulfillmentType.pickup
+                    ? 'Add a delivery address to continue'
+                    : 'Place Order · ₱${total.toStringAsFixed(0)}',
             loading: _placing,
-            onPressed: _placeOrder,
+            onPressed: _fulfillment == null ? null : _placeOrder,
           ),
         ),
       ),
@@ -239,14 +483,18 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   Widget _summaryRow(String label, double value, {bool bold = false}) {
+    final sign = value < 0 ? '-' : '';
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label, style: TextStyle(fontWeight: bold ? FontWeight.w700 : FontWeight.normal)),
-          Text('₱${value.toStringAsFixed(0)}',
-              style: TextStyle(fontWeight: bold ? FontWeight.w800 : FontWeight.w600)),
+          Text('$sign₱${value.abs().toStringAsFixed(0)}',
+              style: TextStyle(
+                fontWeight: bold ? FontWeight.w800 : FontWeight.w600,
+                color: value < 0 ? AppColors.success : null,
+              )),
         ],
       ),
     );

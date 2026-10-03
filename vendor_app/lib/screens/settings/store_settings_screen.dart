@@ -5,11 +5,13 @@ import '../../providers/vendor_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/common.dart';
 import '../auth/login_screen.dart';
+import '../promotions/promotions_screen.dart';
 import 'account_center_screen.dart';
 import 'categories_screen.dart';
 import 'delivery_settings_screen.dart';
 import 'operating_hours_screen.dart';
 import 'store_profile_screen.dart';
+import 'store_reviews_screen.dart';
 import 'store_status_screen.dart';
 
 class StoreSettingsScreen extends StatelessWidget {
@@ -73,8 +75,11 @@ class StoreSettingsScreen extends StatelessWidget {
                             ],
                           ],
                         ),
-                        Text('${vendor.rating} ★  (${vendor.totalReviews} reviews)',
-                            style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                        // Only show a rating once customers have actually
+                        // left reviews.
+                        if (vendor.totalReviews > 0)
+                          Text('${vendor.rating} ★  (${vendor.totalReviews} reviews)',
+                              style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
                       ],
                     ),
                   ),
@@ -143,6 +148,22 @@ class StoreSettingsScreen extends StatelessWidget {
               vendor.categories.isEmpty ? 'Not set' : vendor.categories.join(', '),
               onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CategoriesScreen())),
             ),
+            _settingsTile(
+              context,
+              Icons.local_offer_outlined,
+              'Promotions',
+              'Discounts and promo codes for your store',
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PromotionsScreen())),
+            ),
+            _settingsTile(
+              context,
+              Icons.rate_review_outlined,
+              'Customer Reviews',
+              vendor.totalReviews > 0
+                  ? '${vendor.rating.toStringAsFixed(1)} ★ from ${vendor.totalReviews} reviews'
+                  : 'No reviews yet',
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const StoreReviewsScreen())),
+            ),
             const SizedBox(height: 12),
             const SectionHeader(title: 'Account'),
             _settingsTile(
@@ -154,7 +175,6 @@ class StoreSettingsScreen extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             const SectionHeader(title: 'Support'),
-            _settingsTile(context, Icons.help_outline, 'Help Center', '', onTap: () {}),
             _settingsTile(
               context,
               Icons.pause_circle_outlined,

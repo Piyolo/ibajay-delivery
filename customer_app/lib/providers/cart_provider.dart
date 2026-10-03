@@ -49,10 +49,12 @@ class CartProvider extends ChangeNotifier {
   }
 
   void updateQuantity(String cartItemId, int delta) {
-    final item = _cart.items.firstWhere((i) => i.id == cartItemId);
+    final index = _cart.items.indexWhere((i) => i.id == cartItemId);
+    if (index == -1) return;
+    final item = _cart.items[index];
     item.quantity += delta;
     if (item.quantity <= 0) {
-      _cart.items.removeWhere((i) => i.id == cartItemId);
+      _cart.items.removeAt(index);
     }
     if (_cart.items.isEmpty) _cart.clear();
     notifyListeners();

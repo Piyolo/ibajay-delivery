@@ -99,31 +99,14 @@ class AccountSettingsScreen extends StatelessWidget {
     required TextInputType keyboardType,
     required Future<void> Function(String value) save,
   }) {
-    final controller = TextEditingController(text: initialValue);
-    showDialog(
+    showDialog<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: controller,
-          keyboardType: keyboardType,
-          autofocus: true,
-          decoration: InputDecoration(labelText: label),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () async {
-              final value = controller.text.trim();
-              if (value.isEmpty) return;
-              final messenger = ScaffoldMessenger.of(context);
-              Navigator.of(dialogContext).pop();
-              await save(value);
-              messenger.showSnackBar(SnackBar(content: Text('$title — saved')));
-            },
-            child: const Text('Save'),
-          ),
-        ],
+      builder: (_) => _EditFieldDialog(
+        title: title,
+        label: label,
+        initialValue: initialValue,
+        keyboardType: keyboardType,
+        save: save,
       ),
     );
   }
@@ -131,51 +114,172 @@ class AccountSettingsScreen extends StatelessWidget {
   /// Email changes require OTP confirmation: collect the new address,
   /// "send" the code, then verify on the dedicated screen.
   void _startEmailChange(BuildContext context) {
-    final auth = context.read<AuthProvider>();
-    final controller = TextEditingController();
-    showDialog(
+    showDialog<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Change Email'),
-        content: Column(
+      builder: (_) => const _ChangeEmailDialog(),
+    );
+  }
+}
+
+class _EditFieldDialog extends StatefulWidget {
+  final String title;
+  final String label;
+  final String initialValue;
+  final TextInputType keyboardType;
+  final Future<void> Function(String value) save;
+
+  const _EditFieldDialog({
+    required this.title,
+    required this.label,
+    required this.initialValue,
+    required this.keyboardType,
+    required this.save,
+  });
+
+  @override
+  State<_EditFieldDialog> createState() => _EditFieldDialogState();
+}
+
+class _EditFieldDialogState extends State<_EditFieldDialog> {
+  late final TextEditingController _ctrl;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(text: widget.initialValue);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final value = _ctrl.text.trim();
+    if (value.isEmpty) return;
+    setState(() => _saving = true);
+    final messenger = ScaffoldMessenger.of(context);
+    Navigator.of(context).pop();
+    await widget.save(value);
+    messenger.showSnackBar(SnackBar(content: Text('${widget.title} — saved')));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: SingleChildScrollView(
+        child: TextField(
+          controller: _ctrl,
+          keyboardType: widget.keyboardType,
+          autofocus: true,
+          decoration: InputDecoration(labelText: widget.label),
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => _submit(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: _saving ? null : _submit,
+          child: _saving
+              ? const SizedBox(
+                  width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('Save'),
+        ),
+      ],
+    );
+  }
+}
+
+class _ChangeEmailDialog extends StatefulWidget {
+  const _ChangeEmailDialog();
+
+  @override
+  State<_ChangeEmailDialog> createState() => _ChangeEmailDialogState();
+}
+
+class _ChangeEmailDialogState extends State<_ChangeEmailDialog> {
+  late final TextEditingController _ctrl;
+  bool _submitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final value = _ctrl.text.trim();
+    if (value.isEmpty || !value.contains('@')) return;
+    setState(() => _submitting = true);
+    final auth = context.read<AuthProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final demoOtp = await auth.startEmailChange(value);
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => VerifyEmailChangeScreen(newEmail: value, demoOtp: demoOtp),
+      ));
+    } on Exception {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(content: Text('That is already your current email')),
+      );
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final currentEmail = context.watch<AuthProvider>().currentUser?.email ?? '';
+
+    return AlertDialog(
+      title: const Text('Change Email'),
+      content: SingleChildScrollView(
+        child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('Current: ${auth.currentUser?.email ?? ''}',
+            Text('Current: $currentEmail',
                 style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
             const SizedBox(height: 12),
             TextField(
-              controller: controller,
+              controller: _ctrl,
               keyboardType: TextInputType.emailAddress,
               autofocus: true,
               decoration: const InputDecoration(labelText: 'New email address'),
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _submit(),
             ),
           ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () async {
-              final value = controller.text.trim();
-              if (value.isEmpty || !value.contains('@')) return;
-              try {
-                final demoOtp = await auth.startEmailChange(value);
-                if (!dialogContext.mounted) return;
-                Navigator.of(dialogContext).pop();
-                if (!context.mounted) return;
-                Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => VerifyEmailChangeScreen(newEmail: value, demoOtp: demoOtp),
-                ));
-              } on Exception {
-                if (!dialogContext.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('That is already your current email')),
-                );
-              }
-            },
-            child: const Text('Send Code'),
-          ),
-        ],
       ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: _submitting ? null : _submit,
+          child: _submitting
+              ? const SizedBox(
+                  width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('Send Code'),
+        ),
+      ],
     );
   }
 }

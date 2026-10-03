@@ -30,12 +30,19 @@ class EmptyState extends StatelessWidget {
   final IconData icon;
   final String title;
   final String subtitle;
-  const EmptyState({super.key, required this.icon, required this.title, required this.subtitle});
+  final Widget? action;
+  const EmptyState({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.action,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 48),
+      padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 24),
       child: Column(
         children: [
           Icon(icon, size: 48, color: AppColors.textSecondary.withValues(alpha: 0.5)),
@@ -47,6 +54,7 @@ class EmptyState extends StatelessWidget {
             textAlign: TextAlign.center,
             style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
           ),
+          if (action != null) ...[const SizedBox(height: 16), action!],
         ],
       ),
     );

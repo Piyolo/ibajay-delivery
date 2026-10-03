@@ -13,6 +13,7 @@ class CategoriesScreen extends StatefulWidget {
 
 class _CategoriesScreenState extends State<CategoriesScreen> {
   late Set<String> _selected;
+  bool _saving = false;
 
   @override
   void initState() {
@@ -20,8 +21,17 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
     _selected = context.read<VendorProvider>().vendor.categories.toSet();
   }
 
-  void _save() {
-    context.read<VendorProvider>().updateCategories(_selected.toList());
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    final provider = context.read<VendorProvider>();
+    await provider.updateCategories(_selected.toList());
+    if (!mounted) return;
+    setState(() => _saving = false);
+    if (provider.lastError != null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Not saved — ${provider.lastError}')));
+      return;
+    }
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Categories updated')));
     Navigator.of(context).pop();
   }
@@ -31,7 +41,14 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Store Categories'),
-        actions: [TextButton(onPressed: _save, child: const Text('Save'))],
+        actions: [
+          TextButton(
+            onPressed: _saving ? null : _save,
+            child: _saving
+                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Text('Save'),
+          ),
+        ],
       ),
       body: SafeArea(
         child: Padding(

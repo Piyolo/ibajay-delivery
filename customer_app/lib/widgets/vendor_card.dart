@@ -24,9 +24,12 @@ class VendorCard extends StatelessWidget {
             children: [
               Stack(
                 children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(AppRadius.md),
-                    child: const PlaceholderImage(width: 84, height: 84, icon: Icons.storefront),
+                  RemoteImage(
+                    url: vendor.logoUrl,
+                    width: 84,
+                    height: 84,
+                    icon: Icons.storefront,
+                    borderRadius: AppRadius.md,
                   ),
                   if (!vendor.isOpen)
                     Positioned.fill(
@@ -68,7 +71,7 @@ class VendorCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Row(
                       children: [
-                        RatingStars(rating: vendor.rating),
+                        RatingStars(rating: vendor.rating, totalReviews: vendor.totalReviews),
                         const SizedBox(width: 8),
                         Text('(${vendor.totalReviews})',
                             style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),

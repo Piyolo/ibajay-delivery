@@ -90,6 +90,59 @@ class PlaceholderImage extends StatelessWidget {
   }
 }
 
+/// Renders [url] when it points at a real image, otherwise falls back to
+/// a themed placeholder — used for vendor logos/banners/food photos that
+/// arrive from the API.
+class RemoteImage extends StatelessWidget {
+  final String url;
+  final double? width;
+  final double? height;
+  final IconData icon;
+  final double borderRadius;
+  final BoxFit fit;
+
+  const RemoteImage({
+    super.key,
+    required this.url,
+    this.width,
+    this.height,
+    this.icon = Icons.restaurant,
+    this.borderRadius = 0,
+    this.fit = BoxFit.cover,
+  });
+
+  bool get _hasUrl {
+    final u = url.trim();
+    return u.startsWith('http://') || u.startsWith('https://');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_hasUrl) {
+      return PlaceholderImage(
+        width: width,
+        height: height,
+        icon: icon,
+        borderRadius: borderRadius,
+      );
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(borderRadius),
+      child: Image.network(
+        url.trim(),
+        width: width,
+        height: height,
+        fit: fit,
+        errorBuilder: (_, __, ___) => PlaceholderImage(
+          width: width,
+          height: height,
+          icon: icon,
+        ),
+      ),
+    );
+  }
+}
+
 class PrimaryButton extends StatelessWidget {
   final String label;
   final VoidCallback? onPressed;
@@ -113,11 +166,26 @@ class PrimaryButton extends StatelessWidget {
 
 class RatingStars extends StatelessWidget {
   final double rating;
+  final int totalReviews;
   final double size;
-  const RatingStars({super.key, required this.rating, this.size = 14});
+  const RatingStars({
+    super.key,
+    required this.rating,
+    this.totalReviews = 0,
+    this.size = 14,
+  });
 
   @override
   Widget build(BuildContext context) {
+    // A store with no reviews has no rating yet — showing "0.0" reads as
+    // worst-rated. Say what's true instead.
+    if (totalReviews <= 0) {
+      return Text('New',
+          style: TextStyle(
+              fontSize: size * 0.85,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textSecondary));
+    }
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [

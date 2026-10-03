@@ -22,6 +22,12 @@ class StoreListingScreen extends StatelessWidget {
       refLng: location.referenceLng,
       refBarangay: location.referenceBarangay,
     );
+    final hasActiveFilters = vendorProvider.selectedCategory != null ||
+        vendorProvider.filterOpenNow ||
+        vendorProvider.filterDeliveryAvailable ||
+        vendorProvider.filterPickupAvailable ||
+        vendorProvider.filterScheduledAvailable ||
+        vendorProvider.searchQuery.trim().isNotEmpty;
 
     return Scaffold(
       appBar: AppBar(title: const Text('All Stores')),
@@ -30,13 +36,9 @@ class StoreListingScreen extends StatelessWidget {
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-              child: TextField(
-                decoration: const InputDecoration(
-                  prefixIcon: Icon(Icons.search),
-                  hintText: 'Search food or store name',
-                ),
-                onChanged: vendorProvider.setSearch,
-              ),
+              // Controller-backed so it stays in sync with Home's field
+              // (both read/write VendorProvider.searchQuery).
+              child: _SearchField(vendorProvider: vendorProvider),
             ),
             SizedBox(
               height: 40,
@@ -97,12 +99,38 @@ class StoreListingScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Text(
+                    '${results.length} store${results.length == 1 ? '' : 's'}'
+                    '${vendorProvider.selectedCategory != null ? ' in ${vendorProvider.selectedCategory}' : ''}',
+                    style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5),
+                  ),
+                  const Spacer(),
+                  if (hasActiveFilters)
+                    TextButton(
+                      onPressed: () => vendorProvider.clearFilters(),
+                      child: const Text('Clear filters', style: TextStyle(fontSize: 12.5)),
+                    ),
+                ],
+              ),
+            ),
             Expanded(
               child: results.isEmpty
-                  ? const EmptyState(
+                  ? EmptyState(
                       icon: Icons.storefront_outlined,
                       title: 'No stores match your filters',
-                      subtitle: 'Try clearing a filter or searching for something else.',
+                      subtitle: vendorProvider.selectedCategory != null
+                          ? "Nothing in ${vendorProvider.selectedCategory} right now — try another category."
+                          : 'Try clearing a filter or searching for something else.',
+                      action: hasActiveFilters
+                          ? OutlinedButton(
+                              onPressed: () => vendorProvider.clearFilters(),
+                              child: const Text('Clear filters'),
+                            )
+                          : null,
                     )
                   : ListView.separated(
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
@@ -136,6 +164,59 @@ class _FilterChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ChoiceChip(label: Text(label), selected: selected, onSelected: (_) => onTap());
+  }
+}
+
+/// Search box whose text always mirrors [VendorProvider.searchQuery], so
+/// edits from the Home screen show up here and vice versa.
+class _SearchField extends StatefulWidget {
+  final VendorProvider vendorProvider;
+  const _SearchField({required this.vendorProvider});
+
+  @override
+  State<_SearchField> createState() => _SearchFieldState();
+}
+
+class _SearchFieldState extends State<_SearchField> {
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.vendorProvider.searchQuery);
+
+  @override
+  void didUpdateWidget(covariant _SearchField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.vendorProvider.searchQuery != _controller.text) {
+      _controller.text = widget.vendorProvider.searchQuery;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: _controller,
+      decoration: InputDecoration(
+        prefixIcon: const Icon(Icons.search),
+        hintText: 'Search food or store name',
+        suffixIcon: _controller.text.isNotEmpty
+            ? IconButton(
+                icon: const Icon(Icons.close, size: 18),
+                onPressed: () {
+                  widget.vendorProvider.setSearch('');
+                  setState(() => _controller.clear());
+                },
+              )
+            : null,
+      ),
+      onChanged: (v) {
+        widget.vendorProvider.setSearch(v);
+        setState(() {});
+      },
+    );
   }
 }
 

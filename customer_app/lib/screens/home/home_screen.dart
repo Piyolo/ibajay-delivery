@@ -61,9 +61,18 @@ class HomeScreen extends StatelessWidget {
         ],
       ),
       body: SafeArea(
-        child: vendorProvider.isLoading && !vendorProvider.isLoaded
-            ? const Center(child: CircularProgressIndicator())
-            : _HomeBody(vendorProvider: vendorProvider, location: location),
+        child: RefreshIndicator(
+          onRefresh: () {
+            final location = context.read<LocationProvider>();
+            return context.read<VendorProvider>().reload(
+                  refLat: location.referenceLat,
+                  refLng: location.referenceLng,
+                );
+          },
+          child: vendorProvider.isLoading && !vendorProvider.isLoaded
+              ? const Center(child: CircularProgressIndicator())
+              : _HomeBody(vendorProvider: vendorProvider, location: location),
+        ),
       ),
     );
   }
@@ -86,6 +95,42 @@ class _HomeBody extends StatelessWidget {
 
     return CustomScrollView(
       slivers: [
+        if (vendorProvider.lastError != null && vendorProvider.allVendors.isEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: Card(
+                color: AppColors.danger.withValues(alpha: 0.06),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.wifi_off, color: AppColors.danger),
+                          SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              "Couldn't reach the stores. Check your connection and try again.",
+                              style: TextStyle(fontSize: 13),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      OutlinedButton(
+                        onPressed: () => vendorProvider.reload(
+                          refLat: location.referenceLat,
+                          refLng: location.referenceLng,
+                        ),
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
         SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
@@ -202,11 +247,17 @@ class _HomeBody extends StatelessWidget {
           ),
         ),
         if (nearby.isEmpty)
-          const SliverToBoxAdapter(
+          SliverToBoxAdapter(
             child: EmptyState(
               icon: Icons.storefront_outlined,
-              title: 'No vendors match your filters',
+              title: vendorProvider.selectedCategory != null
+                  ? "No stores in ${vendorProvider.selectedCategory}"
+                  : 'No vendors match your filters',
               subtitle: 'Try clearing a filter or searching for something else.',
+              action: OutlinedButton(
+                onPressed: () => vendorProvider.clearFilters(),
+                child: const Text('Clear filters'),
+              ),
             ),
           )
         else

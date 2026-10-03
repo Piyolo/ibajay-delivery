@@ -21,6 +21,7 @@ class CheckoutRequest(BaseModel):
     address_id: uuid.UUID | None = None  # required if delivery_method != pickup
     scheduled_for: datetime | None = None  # required if delivery_method == scheduled_delivery
     special_instructions: str | None = None
+    promo_code: str | None = None
 
     @model_validator(mode="after")
     def validate_method_requirements(self):
@@ -29,6 +30,19 @@ class CheckoutRequest(BaseModel):
         if self.delivery_method == DeliveryMethod.scheduled_delivery and not self.scheduled_for:
             raise ValueError("scheduled_for is required for scheduled deliveries")
         return self
+
+
+class PromoValidateRequest(BaseModel):
+    vendor_id: uuid.UUID
+    code: str
+    subtotal: float
+
+
+class PromoValidateOut(BaseModel):
+    valid: bool
+    title: str | None = None
+    discount: float = 0
+    message: str | None = None
 
 
 class OrderItemOut(BaseModel):
@@ -53,6 +67,7 @@ class OrderOut(BaseModel):
     payment_method: PaymentMethod
     subtotal: float
     delivery_fee: float
+    discount: float = 0
     total: float
     scheduled_for: datetime | None
     created_at: datetime

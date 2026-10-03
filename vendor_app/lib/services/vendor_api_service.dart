@@ -1,7 +1,10 @@
+import 'dart:io';
+
 import 'api_client.dart';
 
 /// Vendor portal API: store profile/status, delivery settings, operating
-/// hours, categories, menu CRUD, order inbox, and analytics.
+/// hours, categories, menu CRUD, promotions, order inbox, analytics, and
+/// public store reviews.
 class VendorApiService {
   VendorApiService(this._client);
 
@@ -75,6 +78,36 @@ class VendorApiService {
     }
   }
 
+  // ---- Uploads ----
+
+  /// Uploads an image; returns its public URL.
+  ///
+  /// The content type is derived from the extension explicitly: pickers on
+  /// some devices return extension-less cache paths, which would otherwise
+  /// upload without a Content-Type at all.
+  Future<String> uploadImage(String filePath) async {
+    final ext = filePath.contains('.') ? filePath.split('.').last.toLowerCase() : '';
+    const mimeByExt = {
+      'jpg': 'image/jpeg',
+      'jpeg': 'image/jpeg',
+      'png': 'image/png',
+      'webp': 'image/webp',
+    };
+    final contentType = mimeByExt[ext] ?? 'image/jpeg';
+    final name = filePath.split(Platform.pathSeparator).last;
+    try {
+      final result = await _client.postMultipart(
+        '/uploads',
+        filePath: filePath,
+        fileName: name,
+        contentType: contentType,
+      ) as Map<String, dynamic>;
+      return result['url'] as String;
+    } on ApiException catch (e) {
+      throw StoreApiException(e.message, statusCode: e.statusCode);
+    }
+  }
+
   // ---- Menu ----
 
   Future<List<dynamic>> getMenu() async {
@@ -133,6 +166,75 @@ class VendorApiService {
       return await _client
               .post('/orders/$orderId/cancel?reason=${Uri.encodeComponent(reason)}')
           as Map<String, dynamic>;
+    } on ApiException catch (e) {
+      throw StoreApiException(e.message, statusCode: e.statusCode);
+    }
+  }
+
+  // ---- Delivery tracking ----
+
+  /// POST /tracking/{id}/start — flips the order to out_for_delivery and
+  /// opens the customer's live-tracking channel.
+  Future<void> startDelivery(String orderId) async {
+    try {
+      await _client.post('/tracking/$orderId/start');
+    } on ApiException catch (e) {
+      throw StoreApiException(e.message, statusCode: e.statusCode);
+    }
+  }
+
+  /// POST /tracking/{id}/gps-ping — called every few seconds while out for
+  /// delivery; fans out to the customer's WebSocket.
+  Future<void> sendGpsPing(String orderId,
+      {required double latitude, required double longitude}) async {
+    try {
+      await _client.post('/tracking/$orderId/gps-ping',
+          body: {'latitude': latitude, 'longitude': longitude});
+    } on ApiException catch (e) {
+      throw StoreApiException(e.message, statusCode: e.statusCode);
+    }
+  }
+
+  // ---- Promotions ----
+
+  Future<List<dynamic>> getPromotions() async {
+    try {
+      return await _client.get('/vendor/me/promotions') as List<dynamic>;
+    } on ApiException catch (e) {
+      throw StoreApiException(e.message, statusCode: e.statusCode);
+    }
+  }
+
+  Future<Map<String, dynamic>> createPromotion(Map<String, dynamic> body) async {
+    try {
+      return await _client.post('/vendor/me/promotions', body: body) as Map<String, dynamic>;
+    } on ApiException catch (e) {
+      throw StoreApiException(e.message, statusCode: e.statusCode);
+    }
+  }
+
+  Future<Map<String, dynamic>> updatePromotion(String id, Map<String, dynamic> body) async {
+    try {
+      return await _client.patch('/vendor/me/promotions/$id', body: body)
+          as Map<String, dynamic>;
+    } on ApiException catch (e) {
+      throw StoreApiException(e.message, statusCode: e.statusCode);
+    }
+  }
+
+  Future<void> deletePromotion(String id) async {
+    try {
+      await _client.delete('/vendor/me/promotions/$id');
+    } on ApiException catch (e) {
+      throw StoreApiException(e.message, statusCode: e.statusCode);
+    }
+  }
+
+  // ---- Reviews (public store reviews) ----
+
+  Future<List<dynamic>> getStoreReviews(String vendorId) async {
+    try {
+      return await _client.get('/vendors/$vendorId/reviews') as List<dynamic>;
     } on ApiException catch (e) {
       throw StoreApiException(e.message, statusCode: e.statusCode);
     }

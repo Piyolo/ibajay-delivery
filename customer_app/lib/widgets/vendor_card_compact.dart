@@ -25,13 +25,12 @@ class VendorCardCompact extends StatelessWidget {
               children: [
                 Stack(
                   children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(AppRadius.md),
-                      child: const PlaceholderImage(
-                        width: double.infinity,
-                        height: 90,
-                        icon: Icons.storefront,
-                      ),
+                    RemoteImage(
+                      url: vendor.logoUrl.isNotEmpty ? vendor.logoUrl : vendor.bannerUrl,
+                      width: double.infinity,
+                      height: 90,
+                      icon: Icons.storefront,
+                      borderRadius: AppRadius.md,
                     ),
                     if (!vendor.isOpen)
                       Positioned.fill(
@@ -61,7 +60,7 @@ class VendorCardCompact extends StatelessWidget {
                   style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
                 ),
                 const SizedBox(height: 4),
-                RatingStars(rating: vendor.rating, size: 12),
+                RatingStars(rating: vendor.rating, totalReviews: vendor.totalReviews, size: 12),
               ],
             ),
           ),

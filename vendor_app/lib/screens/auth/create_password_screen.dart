@@ -15,7 +15,8 @@ class _CreatePasswordScreenState extends State<CreatePasswordScreen> {
   final _formKey = GlobalKey<FormState>();
   final _password = TextEditingController();
   final _confirm = TextEditingController();
-  bool _obscure = true;
+  bool _obscurePassword = true;
+  bool _obscureConfirm = true;
   bool _loading = false;
 
   bool get _hasMinLength => _password.text.length >= 8;
@@ -73,14 +74,14 @@ class _CreatePasswordScreenState extends State<CreatePasswordScreen> {
                 const SizedBox(height: 8),
                 TextFormField(
                   controller: _password,
-                  obscureText: _obscure,
+                  obscureText: _obscurePassword,
                   onChanged: (_) => setState(() {}),
                   validator: _validatePassword,
                   decoration: InputDecoration(
                     hintText: 'Create a password',
                     suffixIcon: IconButton(
-                      icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility, size: 20),
-                      onPressed: () => setState(() => _obscure = !_obscure),
+                      icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility, size: 20),
+                      onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                     ),
                   ),
                 ),
@@ -89,8 +90,14 @@ class _CreatePasswordScreenState extends State<CreatePasswordScreen> {
                 const SizedBox(height: 8),
                 TextFormField(
                   controller: _confirm,
-                  obscureText: _obscure,
-                  decoration: const InputDecoration(hintText: 'Re-enter your password'),
+                  obscureText: _obscureConfirm,
+                  decoration: InputDecoration(
+                    hintText: 'Re-enter your password',
+                    suffixIcon: IconButton(
+                      icon: Icon(_obscureConfirm ? Icons.visibility_off : Icons.visibility, size: 20),
+                      onPressed: () => setState(() => _obscureConfirm = !_obscureConfirm),
+                    ),
+                  ),
                   validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
                 ),
                 const SizedBox(height: 20),

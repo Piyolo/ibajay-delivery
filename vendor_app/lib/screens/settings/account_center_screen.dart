@@ -1,12 +1,12 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../providers/vendor_provider.dart';
 import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
 
-/// Account Center — the vendor's personal account (identity & security),
-/// deliberately separate from store configuration. Persists every change.
+/// Account Center — the vendor''s personal account (identity & security),
+/// deliberately separate from store configuration.
 class AccountCenterScreen extends StatelessWidget {
   const AccountCenterScreen({super.key});
 
@@ -19,7 +19,6 @@ class AccountCenterScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(AppSpacing.lg),
         children: [
-          // Account header
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -42,7 +41,8 @@ class AccountCenterScreen extends StatelessWidget {
                         Text(vendor.ownerName.isEmpty ? 'Store Owner' : vendor.ownerName,
                             style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
                         const SizedBox(height: 2),
-                        Text(vendor.email, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                        Text(vendor.email,
+                            style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
                         Text('Store: ${vendor.storeName}',
                             style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
                       ],
@@ -59,13 +59,15 @@ class AccountCenterScreen extends StatelessWidget {
             Icons.person_outline,
             'Owner Name',
             subtitle: vendor.ownerName,
-            onTap: () => _editField(
-              context,
-              title: 'Owner Name',
-              label: 'Full name',
-              initialValue: vendor.ownerName,
-              keyboardType: TextInputType.name,
-              save: (v) => context.read<VendorProvider>().updateProfile(ownerName: v),
+            onTap: () => showDialog<void>(
+              context: context,
+              builder: (_) => _EditFieldDialog(
+                title: 'Owner Name',
+                label: 'Full name',
+                initialValue: vendor.ownerName,
+                keyboardType: TextInputType.name,
+                save: (v) => context.read<VendorProvider>().updateProfile(ownerName: v),
+              ),
             ),
           ),
           _tile(
@@ -73,13 +75,15 @@ class AccountCenterScreen extends StatelessWidget {
             Icons.mail_outline,
             'Email Address',
             subtitle: vendor.email,
-            onTap: () => _editField(
-              context,
-              title: 'Email Address',
-              label: 'Email',
-              initialValue: vendor.email,
-              keyboardType: TextInputType.emailAddress,
-              save: (v) => context.read<VendorProvider>().updateProfile(email: v),
+            onTap: () => showDialog<void>(
+              context: context,
+              builder: (_) => _EditFieldDialog(
+                title: 'Email Address',
+                label: 'Email',
+                initialValue: vendor.email,
+                keyboardType: TextInputType.emailAddress,
+                save: (v) => context.read<VendorProvider>().updateProfile(email: v),
+              ),
             ),
           ),
           _tile(
@@ -87,13 +91,15 @@ class AccountCenterScreen extends StatelessWidget {
             Icons.phone_outlined,
             'Mobile Number',
             subtitle: vendor.mobileNumber,
-            onTap: () => _editField(
-              context,
-              title: 'Mobile Number',
-              label: 'Mobile number',
-              initialValue: vendor.mobileNumber,
-              keyboardType: TextInputType.phone,
-              save: (v) => context.read<VendorProvider>().updateProfile(contactNumber: v),
+            onTap: () => showDialog<void>(
+              context: context,
+              builder: (_) => _EditFieldDialog(
+                title: 'Mobile Number',
+                label: 'Mobile number',
+                initialValue: vendor.mobileNumber,
+                keyboardType: TextInputType.phone,
+                save: (v) => context.read<VendorProvider>().updateProfile(contactNumber: v),
+              ),
             ),
           ),
           const SizedBox(height: 20),
@@ -103,7 +109,10 @@ class AccountCenterScreen extends StatelessWidget {
             Icons.lock_outline,
             'Change Password',
             subtitle: 'Requires your current password',
-            onTap: () => _changePassword(context),
+            onTap: () => showDialog<void>(
+              context: context,
+              builder: (_) => const _ChangePasswordDialog(),
+            ),
           ),
           const SizedBox(height: 28),
           OutlinedButton.icon(
@@ -143,153 +152,241 @@ class AccountCenterScreen extends StatelessWidget {
       ),
     );
   }
+}
 
-  void _editField(
-    BuildContext context, {
-    required String title,
-    required String label,
-    required String initialValue,
-    required TextInputType keyboardType,
-    required Future<void> Function(String value) save,
-  }) {
-    final controller = TextEditingController(text: initialValue);
-    showDialog(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: controller,
-          keyboardType: keyboardType,
-          autofocus: true,
-          decoration: InputDecoration(labelText: label),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () async {
-              final value = controller.text.trim();
-              if (value.isEmpty) return;
-              final messenger = ScaffoldMessenger.of(context);
-              Navigator.of(dialogContext).pop();
-              await save(value);
-              messenger.showSnackBar(SnackBar(content: Text('$title — saved')));
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
+// ---------------------------------------------------------------------------
+// Edit single field dialog — owns its own controller lifecycle
+// ---------------------------------------------------------------------------
+
+class _EditFieldDialog extends StatefulWidget {
+  final String title;
+  final String label;
+  final String initialValue;
+  final TextInputType keyboardType;
+  final Future<void> Function(String value) save;
+
+  const _EditFieldDialog({
+    required this.title,
+    required this.label,
+    required this.initialValue,
+    required this.keyboardType,
+    required this.save,
+  });
+
+  @override
+  State<_EditFieldDialog> createState() => _EditFieldDialogState();
+}
+
+class _EditFieldDialogState extends State<_EditFieldDialog> {
+  late final TextEditingController _ctrl;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(text: widget.initialValue);
   }
 
-  /// Two-step dialog: verify current password first, then set the new one.
-  void _changePassword(BuildContext context) {
-    final currentController = TextEditingController();
-    final newController = TextEditingController();
-    final confirmController = TextEditingController();
-    bool verified = false;
-    bool verifying = false;
-    String? verifyError;
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
 
-    showDialog(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          title: const Text('Change Password'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (!verified) ...[
-                TextField(
-                  controller: currentController,
-                  obscureText: true,
-                  autofocus: true,
-                  decoration: const InputDecoration(labelText: 'Current password'),
-                ),
-                if (verifyError != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text(verifyError!,
-                        style: const TextStyle(color: AppColors.danger, fontSize: 12)),
-                  ),
-              ] else ...[
-                const Row(
-                  children: [
-                    Icon(Icons.check_circle, size: 16, color: AppColors.success),
-                    SizedBox(width: 6),
-                    Text('Current password verified',
-                        style: TextStyle(color: AppColors.success, fontSize: 12)),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: newController,
-                  obscureText: true,
-                  autofocus: true,
-                  decoration: const InputDecoration(labelText: 'New password (min. 8 characters)'),
-                  onChanged: (_) => setDialogState(() {}),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: confirmController,
-                  obscureText: true,
-                  decoration: const InputDecoration(labelText: 'Confirm new password'),
-                  onChanged: (_) => setDialogState(() {}),
-                ),
-              ],
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(dialogContext).pop();
-                if (!verified) Navigator.of(context).pop(); // cancel entirely
-              },
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: verifying
-                  ? null
-                  : !verified
-                      ? () async {
-                          if (currentController.text.isEmpty) return;
-                          setDialogState(() => verifying = true);
-                          final provider = context.read<VendorProvider>();
-                          final ok = await provider.verifyPassword(currentController.text);
-                          setDialogState(() {
-                            verifying = false;
-                            verified = ok;
-                            verifyError = ok ? null : 'Incorrect current password';
-                          });
-                        }
-                      : (newController.text.length >= 8 && newController.text == confirmController.text)
-                          ? () async {
-                              final provider = context.read<VendorProvider>();
-                              final messenger = ScaffoldMessenger.of(context);
-                              final ok = await provider.changePassword(
-                                currentPassword: currentController.text,
-                                newPassword: newController.text,
-                              );
-                              if (!context.mounted) return;
-                              Navigator.of(dialogContext).pop();
-                              messenger.showSnackBar(SnackBar(
-                                content: Text(ok
-                                    ? 'Password updated'
-                                    : (provider.lastAuthError ?? 'Could not update password')),
-                              ));
-                            }
-                          : null,
-              child: Text(verifying
-                  ? 'Verifying…'
-                  : verified
-                      ? 'Save New Password'
-                      : 'Verify'),
-            ),
-          ],
+  Future<void> _submit() async {
+    final value = _ctrl.text.trim();
+    if (value.isEmpty) return;
+    setState(() => _saving = true);
+    final messenger = ScaffoldMessenger.of(context);
+    Navigator.of(context).pop();
+    await widget.save(value);
+    messenger.showSnackBar(SnackBar(content: Text('${widget.title} — saved')));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: SingleChildScrollView(
+        child: TextField(
+          controller: _ctrl,
+          keyboardType: widget.keyboardType,
+          autofocus: true,
+          decoration: InputDecoration(labelText: widget.label),
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => _submit(),
         ),
       ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: _saving ? null : _submit,
+          child: _saving
+              ? const SizedBox(
+                  width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('Save'),
+        ),
+      ],
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Change password dialog — two-step (verify current → set new)
+// ---------------------------------------------------------------------------
+
+class _ChangePasswordDialog extends StatefulWidget {
+  const _ChangePasswordDialog();
+
+  @override
+  State<_ChangePasswordDialog> createState() => _ChangePasswordDialogState();
+}
+
+class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
+  late final TextEditingController _current;
+  late final TextEditingController _newPass;
+  late final TextEditingController _confirm;
+
+  bool _verified = false;
+  bool _verifying = false;
+  bool _saving = false;
+  String? _verifyError;
+
+  @override
+  void initState() {
+    super.initState();
+    _current = TextEditingController();
+    _newPass = TextEditingController();
+    _confirm = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _current.dispose();
+    _newPass.dispose();
+    _confirm.dispose();
+    super.dispose();
+  }
+
+  Future<void> _verify() async {
+    if (_current.text.isEmpty) return;
+    setState(() => _verifying = true);
+    final ok = await context.read<VendorProvider>().verifyPassword(_current.text);
+    if (!mounted) return;
+    setState(() {
+      _verifying = false;
+      _verified = ok;
+      _verifyError = ok ? null : 'Incorrect current password';
+    });
+  }
+
+  Future<void> _savePassword() async {
+    setState(() => _saving = true);
+    final provider = context.read<VendorProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+    final ok = await provider.changePassword(
+      currentPassword: _current.text,
+      newPassword: _newPass.text,
+    );
+    if (!mounted) return;
+    Navigator.of(context).pop();
+    messenger.showSnackBar(SnackBar(
+      content: Text(ok
+          ? 'Password updated'
+          : (provider.lastAuthError ?? 'Could not update password')),
+    ));
+  }
+
+  bool get _canSave => _newPass.text.length >= 8 && _newPass.text == _confirm.text;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Change Password'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (!_verified) ...[
+              TextField(
+                controller: _current,
+                obscureText: true,
+                autofocus: true,
+                decoration: const InputDecoration(labelText: 'Current password'),
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _verify(),
+              ),
+              if (_verifyError != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(_verifyError!,
+                      style: const TextStyle(color: AppColors.danger, fontSize: 12)),
+                ),
+            ] else ...[
+              const Row(
+                children: [
+                  Icon(Icons.check_circle, size: 16, color: AppColors.success),
+                  SizedBox(width: 6),
+                  Text('Current password verified',
+                      style: TextStyle(color: AppColors.success, fontSize: 12)),
+                ],
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _newPass,
+                obscureText: true,
+                autofocus: true,
+                decoration: const InputDecoration(labelText: 'New password (min. 8 characters)'),
+                textInputAction: TextInputAction.next,
+                onChanged: (_) => setState(() {}),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _confirm,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'Confirm new password'),
+                textInputAction: TextInputAction.done,
+                onChanged: (_) => setState(() {}),
+                onSubmitted: (_) {
+                  if (_canSave) _savePassword();
+                },
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: (_verifying || _saving)
+              ? null
+              : !_verified
+                  ? _verify
+                  : _canSave
+                      ? _savePassword
+                      : null,
+          child: Text(_verifying
+              ? 'Verifying…'
+              : _saving
+                  ? 'Saving…'
+                  : _verified
+                      ? 'Save New Password'
+                      : 'Verify'),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Section label widget
+// ---------------------------------------------------------------------------
 
 class _SectionLabel extends StatelessWidget {
   final String text;
@@ -301,7 +398,9 @@ class _SectionLabel extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 4),
       child: Text(text,
           style: const TextStyle(
-              fontWeight: FontWeight.w700, color: AppColors.textSecondary, fontSize: 13)),
+              fontWeight: FontWeight.w700,
+              color: AppColors.textSecondary,
+              fontSize: 13)),
     );
   }
 }

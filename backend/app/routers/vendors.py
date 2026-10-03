@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import or_, select
@@ -7,6 +8,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.db import get_db
 from app.models.food import FoodItem, FoodOption
+from app.models.social import Promotion
 from app.models.vendor import Vendor, VendorCategory, VendorDeliverySettings
 from app.schemas.vendor import FoodItemOut, VendorCardOut, VendorProfileOut
 from app.services.geo import haversine_km
@@ -110,6 +112,23 @@ async def get_vendor_profile(vendor_id: uuid.UUID, db: AsyncSession = Depends(ge
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Vendor not found")
 
     settings_ = vendor.delivery_settings
+
+    # Active, currently-visible promotions for the storefront banner.
+    now = datetime.now(timezone.utc)
+    promo_result = await db.execute(
+        select(Promotion)
+        .where(
+            Promotion.vendor_id == vendor.id,
+            Promotion.is_active == True,  # noqa: E712
+        )
+        .order_by(Promotion.created_at.desc())
+    )
+    active_promos = [
+        p
+        for p in promo_result.scalars().all()
+        if (p.starts_at is None or p.starts_at <= now) and (p.ends_at is None or p.ends_at >= now)
+    ]
+
     return VendorProfileOut(
         id=vendor.id,
         store_name=vendor.store_name,
@@ -132,6 +151,7 @@ async def get_vendor_profile(vendor_id: uuid.UUID, db: AsyncSession = Depends(ge
         estimated_prep_minutes=settings_.estimated_prep_minutes if settings_ else 20,
         delivery_barangays=(settings_.delivery_barangays if settings_ else []) or [],
         categories=[c.name for c in vendor.categories],
+        promotions=active_promos,
         food_items=[
             FoodItemOut(
                 id=f.id,

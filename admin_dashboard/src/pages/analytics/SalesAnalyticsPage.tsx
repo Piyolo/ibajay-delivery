@@ -1,20 +1,32 @@
 import { useState } from 'react'
-import { monthlySeries, revenueSeries } from '../../data/mockDb'
-import { money, num, pct } from '../../lib/format'
+import { api } from '../../lib/api'
+import { money, num } from '../../lib/format'
 import { Card, CardHead, KpiCard, PageHeader } from '../../components/ui/primitives'
 import { OrdersBarChart, RevenueAreaChart } from '../../components/charts/charts'
 import { useAsyncData } from '../../state/live'
+import {
+  monthlySeries,
+  revenueSeries,
+  weeklySeries,
+  type AdminOrderRow,
+} from './series'
 
 type Grain = 'daily' | 'weekly' | 'monthly' | 'annual'
 
 export function SalesAnalyticsPage() {
   const [grain, setGrain] = useState<Grain>('daily')
 
-  const series = useAsyncData(() =>
-    grain === 'monthly' || grain === 'annual' ? monthlySeries(grain === 'annual' ? 12 : 4) : weeklyOrDaily(grain),
-  )
+  const orders =
+    useAsyncData(() => api<AdminOrderRow[]>('/admin/orders', { query: { limit: 500 } })).data ??
+    []
 
-  const data = series.data ?? []
+  const data =
+    grain === 'daily'
+      ? revenueSeries(orders, 14)
+      : grain === 'weekly'
+        ? weeklySeries(orders, 4)
+        : monthlySeries(orders, grain === 'annual' ? 12 : 4)
+
   const totalRevenue = data.reduce((s, p) => s + p.revenue, 0)
   const totalOrders = data.reduce((s, p) => s + p.orders, 0)
   const aov = totalOrders ? Math.round(totalRevenue / totalOrders) : 0
@@ -98,22 +110,4 @@ export function SalesAnalyticsPage() {
       </Card>
     </>
   )
-}
-
-function weeklyOrDaily(grain: 'daily' | 'weekly') {
-  if (grain === 'weekly') {
-    const daily = revenueSeries(28)
-    // Bucket the last 28 days into 4 ISO-style weeks.
-    const weeks: Array<{ label: string; revenue: number; orders: number }> = []
-    for (let w = 0; w < 4; w++) {
-      const chunk = daily.slice(w * 7, w * 7 + 7)
-      weeks.push({
-        label: `Week ${w + 1}`,
-        revenue: chunk.reduce((s, d) => s + d.revenue, 0),
-        orders: chunk.reduce((s, d) => s + d.orders, 0),
-      })
-    }
-    return weeks
-  }
-  return revenueSeries(14)
 }

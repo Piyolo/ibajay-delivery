@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
 import '../../providers/vendor_provider.dart';
@@ -42,21 +41,43 @@ class _StoreProfileScreenState extends State<StoreProfileScreen> {
     super.dispose();
   }
 
-  void _save() {
-    context.read<VendorProvider>().updateProfile(
-          storeName: _storeName.text.trim(),
-          description: _description.text.trim(),
-          address: _address.text.trim(),
-          contactNumber: _contact.text.trim(),
-        );
+  Future<void> _save() async {
+    final provider = context.read<VendorProvider>();
+    await provider.updateProfile(
+      storeName: _storeName.text.trim(),
+      description: _description.text.trim(),
+      address: _address.text.trim(),
+      contactNumber: _contact.text.trim(),
+    );
+    if (!mounted) return;
+    if (provider.lastError != null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Not saved — ${provider.lastError}')));
+      return;
+    }
     setState(() => _editing = false);
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Store profile updated')));
   }
 
-  /// Picks an image from the gallery, copies it into the app's persistent
-  /// support directory and saves the path on the vendor profile so it
-  /// survives restarts. (Swap for a Cloudinary signed upload when the
-  /// backend is connected.)
+  /// Renders a stored image: http(s) URLs come from the backend's upload
+  /// endpoint; anything else is a legacy local path.
+  Widget _storeImage(String url, {required Widget fallback}) {
+    if (url.startsWith('http')) {
+      return Image.network(
+        url,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => fallback,
+      );
+    }
+    return Image.file(
+      File(url),
+      fit: BoxFit.cover,
+      errorBuilder: (_, __, ___) => fallback,
+    );
+  }
+
+  /// Picks an image from the gallery, uploads it to the backend and saves
+  /// the returned URL on the store profile (so every device sees it).
   Future<void> _pickImage({required bool isBanner}) async {
     if (_uploadingImage) return;
     setState(() => _uploadingImage = true);
@@ -69,24 +90,15 @@ class _StoreProfileScreenState extends State<StoreProfileScreen> {
       );
       if (picked == null) return;
 
-      final supportDir = await getApplicationSupportDirectory();
-      final imagesDir = Directory('${supportDir.path}${Platform.pathSeparator}store_images');
-      if (!await imagesDir.exists()) await imagesDir.create(recursive: true);
-
-      final ext = picked.name.contains('.') ? picked.name.split('.').last.toLowerCase() : 'jpg';
-      final safeExt = ['png', 'jpg', 'jpeg', 'webp'].contains(ext) ? ext : 'jpg';
-      final fileName = '${isBanner ? "banner" : "logo"}_${DateTime.now().millisecondsSinceEpoch}.$safeExt';
-      final saved = await File(picked.path).copy('${imagesDir.path}${Platform.pathSeparator}$fileName');
-
       if (!mounted) return;
-      await context.read<VendorProvider>().updateProfile(
-            bannerUrl: isBanner ? saved.path : null,
-            logoUrl: isBanner ? null : saved.path,
-          );
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(isBanner ? 'Banner updated' : 'Logo updated')));
-      }
+      final provider = context.read<VendorProvider>();
+      final ok = await provider.updateStoreImage(isBanner: isBanner, filePath: picked.path);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(ok
+            ? (isBanner ? 'Banner updated' : 'Logo updated')
+            : (provider.lastAuthError ?? 'Could not update image — try again')),
+      ));
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -116,19 +128,18 @@ class _StoreProfileScreenState extends State<StoreProfileScreen> {
           children: [
             // Banner
             Stack(
+              clipBehavior: Clip.none,
               children: [
                 Container(
                   height: 140,
                   width: double.infinity,
                   color: AppColors.surfaceMuted,
                   child: vendor.bannerUrl.isNotEmpty
-                      ? Image.file(
-                          File(vendor.bannerUrl),
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => const Center(
-                            child: Icon(Icons.panorama_outlined, size: 40, color: AppColors.textSecondary),
-                          ),
-                        )
+                      ? _storeImage(vendor.bannerUrl,
+                          fallback: const Center(
+                            child: Icon(Icons.panorama_outlined,
+                                size: 40, color: AppColors.textSecondary),
+                          ))
                       : const Center(
                           child: Icon(Icons.panorama_outlined, size: 40, color: AppColors.textSecondary),
                         ),
@@ -145,7 +156,7 @@ class _StoreProfileScreenState extends State<StoreProfileScreen> {
                   ),
                 Positioned(
                   left: 16,
-                  bottom: -32,
+                  bottom: -38,
                   child: Container(
                     width: 76,
                     height: 76,
@@ -153,22 +164,24 @@ class _StoreProfileScreenState extends State<StoreProfileScreen> {
                       color: AppColors.surface,
                       shape: BoxShape.circle,
                       border: Border.all(color: AppColors.surface, width: 4),
-                      boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 6)],
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Colors.black26,
+                          blurRadius: 8,
+                          offset: Offset(0, 2),
+                        ),
+                      ],
                     ),
-                    child: vendor.logoUrl.isNotEmpty
-                        ? ClipOval(
-                            child: Image.file(
-                              File(vendor.logoUrl),
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => _logoFallback(vendor.storeName),
-                            ),
-                          )
-                        : _logoFallback(vendor.storeName),
+                    child: ClipOval(
+                      child: vendor.logoUrl.isNotEmpty
+                          ? _storeImage(vendor.logoUrl, fallback: _logoFallback(vendor.storeName))
+                          : _logoFallback(vendor.storeName),
+                    ),
                   ),
                 ),
                 if (_editing)
                   Positioned(
-                    left: 68,
+                    left: 72,
                     bottom: -8,
                     child: _EditImageChip(
                       label: vendor.logoUrl.isEmpty ? 'Add Logo' : 'Change Logo',
@@ -179,7 +192,7 @@ class _StoreProfileScreenState extends State<StoreProfileScreen> {
                   ),
               ],
             ),
-            const SizedBox(height: 44),
+            const SizedBox(height: 48),
             Padding(
               padding: const EdgeInsets.all(AppSpacing.lg),
               child: Column(
@@ -197,12 +210,14 @@ class _StoreProfileScreenState extends State<StoreProfileScreen> {
                   const SizedBox(height: 8),
                   Row(
                     children: [
-                      const Icon(Icons.star, size: 16, color: AppColors.warning),
-                      const SizedBox(width: 4),
-                      Text('${vendor.rating}  ·  ${vendor.totalReviews} reviews',
-                          style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                      if (vendor.totalReviews > 0) ...[
+                        const Icon(Icons.star, size: 16, color: AppColors.warning),
+                        const SizedBox(width: 4),
+                        Text('${vendor.rating}  ·  ${vendor.totalReviews} reviews',
+                            style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                      ],
                       if (vendor.isVerified) ...[
-                        const SizedBox(width: 10),
+                        if (vendor.totalReviews > 0) const SizedBox(width: 10),
                         const Icon(Icons.verified, size: 16, color: AppColors.secondary),
                         const SizedBox(width: 4),
                         const Text('Verified', style: TextStyle(color: AppColors.secondary, fontSize: 13, fontWeight: FontWeight.w600)),

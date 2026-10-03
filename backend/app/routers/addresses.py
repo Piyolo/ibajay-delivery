@@ -15,6 +15,7 @@ router = APIRouter(prefix="/addresses", tags=["Addresses"])
 class AddressIn(BaseModel):
     label: str = "Home"
     full_address: str
+    barangay: str = ""
     latitude: float
     longitude: float
     landmark: str | None = None

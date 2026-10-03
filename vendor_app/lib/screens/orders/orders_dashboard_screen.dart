@@ -36,6 +36,7 @@ class _OrdersDashboardScreenState extends State<OrdersDashboardScreen>
   Widget build(BuildContext context) {
     final vendor = context.watch<VendorProvider>().vendor;
     final orders = context.watch<OrderProvider>();
+    final loading = orders.isLoading;
 
     return Scaffold(
       appBar: AppBar(
@@ -67,15 +68,17 @@ class _OrdersDashboardScreenState extends State<OrdersDashboardScreen>
           ],
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _OrderList(orders: orders.newOrders, emptyLabel: 'No new orders right now.'),
-          _OrderList(orders: orders.preparingOrders, emptyLabel: 'Nothing being prepared.'),
-          _OrderList(orders: orders.outForDelivery, emptyLabel: 'No deliveries in progress.'),
-          _OrderList(orders: orders.history, emptyLabel: 'No completed orders yet.'),
-        ],
-      ),
+      body: loading && orders.all.isEmpty
+          ? const Center(child: CircularProgressIndicator())
+          : TabBarView(
+              controller: _tabController,
+              children: [
+                _OrderList(orders: orders.newOrders, emptyLabel: 'No new orders right now.'),
+                _OrderList(orders: orders.preparingOrders, emptyLabel: 'Nothing being prepared.'),
+                _OrderList(orders: orders.outForDelivery, emptyLabel: 'No deliveries in progress.'),
+                _OrderList(orders: orders.history, emptyLabel: 'No completed orders yet.'),
+              ],
+            ),
     );
   }
 }
@@ -126,7 +129,13 @@ class _OrderCard extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(order.id, style: const TextStyle(fontWeight: FontWeight.w800)),
+                  Expanded(
+                    child: Text(
+                      order.orderNumber.isNotEmpty ? order.orderNumber : order.id,
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
                   StatusBadge(status: order.status),
                 ],
               ),
@@ -176,13 +185,25 @@ class _OrderCard extends StatelessWidget {
                   order.status != OrderStatus.cancelled &&
                   order.status != OrderStatus.delivered) ...[
                 const SizedBox(height: 12),
-                SizedBox(
-                  height: 40,
-                  child: ElevatedButton(
-                    onPressed: () => orderProvider.advanceStatus(order.id),
-                    child: Text('Mark as ${order.status.next?.label ?? ''}'),
-                  ),
-                ),
+                Builder(builder: (context) {
+                  final next = order.status.nextFor(order.fulfillmentType);
+                  // Pickup collection reads "Picked Up", matching the
+                  // product's pickup flow (… → Ready for Pickup → Picked Up).
+                  final label = next == null
+                      ? ''
+                      : (order.fulfillmentType == FulfillmentType.pickup &&
+                              next == OrderStatus.completed)
+                          ? 'Picked Up'
+                          : next.label;
+                  return SizedBox(
+                    width: double.infinity,
+                    height: 40,
+                    child: ElevatedButton(
+                      onPressed: () => orderProvider.advanceStatus(order.id),
+                      child: Text('Mark as $label'),
+                    ),
+                  );
+                }),
               ],
             ],
           ),

@@ -49,17 +49,22 @@ class PreferencesService {
   }
 
   // ---- Keys ----
+  //
+  // Per-user data (addresses, favorites, flags) is namespaced by account id
+  // so switching accounts on one device never shares or leaks data between
+  // users. Session keys are global by nature.
 
   static const kSessionUser = 'auth.session_user';
   static const kAccessToken = 'auth.access_token';
   static const kRefreshToken = 'auth.refresh_token';
-  static const kHasSavedLocation = 'auth.has_saved_location';
 
-  static const kAddresses = 'location.addresses';
-  static const kActiveAddressId = 'location.active_address_id';
+  static String kHasSavedLocationFor(String uid) => 'auth.$uid.has_saved_location';
 
-  static const kFavoriteVendors = 'favorites.vendors';
-  static const kFavoriteFoods = 'favorites.foods';
+  static String kAddressesFor(String uid) => 'location.$uid.addresses';
+  static String kActiveAddressIdFor(String uid) => 'location.$uid.active_address_id';
+
+  static String kFavoriteVendorsFor(String uid) => 'favorites.$uid.vendors';
+  static String kFavoriteFoodsFor(String uid) => 'favorites.$uid.foods';
 
   static const kOrderNotifs = 'prefs.order_notifs';
   static const kChatNotifs = 'prefs.chat_notifs';

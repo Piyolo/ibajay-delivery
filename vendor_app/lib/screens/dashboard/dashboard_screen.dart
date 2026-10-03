@@ -22,7 +22,12 @@ class DashboardScreen extends StatelessWidget {
     final orders = context.watch<OrderProvider>();
     final menu = context.watch<MenuProvider>();
 
-    final bestSellers = [...menu.items]..sort((a, b) => b.totalSold.compareTo(a.totalSold));
+    // The backend doesn't track per-item sold counts yet, so highlight
+    // featured/first items instead of claiming fake sales numbers.
+    final highlights = [
+      ...menu.items.where((i) => i.isFeatured),
+      ...menu.items.where((i) => !i.isFeatured),
+    ];
     final hour = DateTime.now().hour;
     final greeting = hour < 12 ? 'Good morning' : (hour < 18 ? 'Good afternoon' : 'Good evening');
 
@@ -85,33 +90,48 @@ class DashboardScreen extends StatelessWidget {
                   badge: orders.pendingCount > 0,
                   onTap: () => onNavigateToTab?.call(1),
                 ),
+                // No reviews yet → no rating to show; menu size is real.
                 _StatCard(
-                  icon: Icons.star_outline,
-                  label: 'Store Rating',
-                  value: vendor.rating.toStringAsFixed(1),
+                  icon: vendor.totalReviews > 0 ? Icons.star_outline : Icons.restaurant_menu_outlined,
+                  label: vendor.totalReviews > 0 ? 'Store Rating' : 'Menu Items',
+                  value: vendor.totalReviews > 0
+                      ? vendor.rating.toStringAsFixed(1)
+                      : '${menu.items.length}',
                   color: AppColors.success,
                 ),
               ],
             ),
             const SizedBox(height: 8),
             SectionHeader(
-              title: 'Popular Products',
+              title: 'Menu Highlights',
               actionLabel: 'Full Analytics',
               onAction: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const AnalyticsScreen()),
               ),
             ),
-            ...bestSellers.take(3).map(
+            ...highlights.take(3).map(
                   (item) => Card(
                     margin: const EdgeInsets.only(bottom: 8),
                     child: ListTile(
-                      leading: const CircleAvatar(
+                      leading: CircleAvatar(
                         backgroundColor: AppColors.surfaceMuted,
-                        child: Icon(Icons.fastfood_outlined, color: AppColors.textSecondary),
+                        child: item.imageUrl.isNotEmpty
+                            ? ClipOval(
+                                child: Image.network(item.imageUrl,
+                                    fit: BoxFit.cover,
+                                    width: 40,
+                                    height: 40,
+                                    errorBuilder: (_, __, ___) =>
+                                        const Icon(Icons.fastfood_outlined,
+                                            color: AppColors.textSecondary)),
+                              )
+                            : const Icon(Icons.fastfood_outlined, color: AppColors.textSecondary),
                       ),
                       title: Text(item.name, style: const TextStyle(fontWeight: FontWeight.w600)),
                       subtitle: Text('₱${item.price.toStringAsFixed(0)}'),
-                      trailing: Text('${item.totalSold} sold', style: const TextStyle(fontWeight: FontWeight.w700)),
+                      trailing: item.isFeatured
+                          ? const Icon(Icons.star_rounded, color: AppColors.warning)
+                          : null,
                     ),
                   ),
                 ),
@@ -190,7 +210,10 @@ class _StatCard extends StatelessWidget {
                 ],
               ),
               const Spacer(),
-              Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+              ),
               Text(label, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
             ],
           ),

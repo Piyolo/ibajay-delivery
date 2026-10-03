@@ -33,6 +33,10 @@ class AuthProvider extends ChangeNotifier {
   final ApiClient _client;
   final AuthApiService api;
 
+  /// The shared client — its auth token is kept fresh, so other providers
+  /// (chat) reuse it instead of unauthenticated instances.
+  ApiClient get client => _client;
+
   AuthStatus status = AuthStatus.signedOut;
   AppUser? currentUser;
 
@@ -44,8 +48,12 @@ class AuthProvider extends ChangeNotifier {
   bool get hasSavedLocation => _hasSavedLocation;
   bool _hasSavedLocation = false;
 
-  // In-flight registration / reset state (shared by the OTP + password steps)
+  // In-flight registration / reset state (shared by the OTP + password
+  // steps). The name/mobile are kept so a resend re-issues the OTP for the
+  // SAME details — currentUser is still null until registration completes.
   String? _pendingEmail;
+  String? _pendingFullName;
+  String? _pendingMobileNumber;
   _PendingFlow _pendingFlow = _PendingFlow.registration;
 
   /// Restores any previously saved session. Call once at app start
@@ -54,7 +62,6 @@ class AuthProvider extends ChangeNotifier {
     final access = await PreferencesService.getString(PreferencesService.kAccessToken);
     final refresh = await PreferencesService.getString(PreferencesService.kRefreshToken);
     final sessionJson = await PreferencesService.getString(PreferencesService.kSessionUser);
-    _hasSavedLocation = await PreferencesService.getBool(PreferencesService.kHasSavedLocation);
 
     if (sessionJson != null) {
       try {
@@ -73,10 +80,23 @@ class AuthProvider extends ChangeNotifier {
     _client.authToken = access;
     status = AuthStatus.signedIn;
 
+    // Per-user flag: whether THIS account already saved a location. Read
+    // only after the cached profile gives us the user id.
+    if (currentUser?.id.isNotEmpty == true) {
+      _hasSavedLocation = await PreferencesService.getBool(
+          PreferencesService.kHasSavedLocationFor(currentUser!.id));
+    }
+
     // Validate the token and refresh the profile; a stale access token is
-    // refreshed once. Network failures keep the cached session.
+    // refreshed once. Network failures (including free-tier server cold
+    // starts) keep the cached session — we never log someone out just
+    // because the server was slow to wake.
     try {
       currentUser = await _fetchMeWithRefresh(access, refresh);
+      if (currentUser?.id.isNotEmpty == true) {
+        _hasSavedLocation = await PreferencesService.getBool(
+            PreferencesService.kHasSavedLocationFor(currentUser!.id));
+      }
     } on AuthException {
       // Invalid/expired beyond refresh — force re-login.
       currentUser = null;
@@ -84,8 +104,7 @@ class AuthProvider extends ChangeNotifier {
       _client.authToken = null;
       await _clearTokens();
     } catch (_) {
-      // Offline: keep the cached profile (currentUser may be null if the
-      // app was freshly installed — then re-login is required anyway).
+      // Offline / timed out: keep the cached profile and session.
     }
     notifyListeners();
   }
@@ -101,6 +120,8 @@ class AuthProvider extends ChangeNotifier {
   }) async {
     lastAuthError = null;
     _pendingEmail = email;
+    _pendingFullName = fullName;
+    _pendingMobileNumber = mobileNumber;
     _pendingFlow = _PendingFlow.registration;
     try {
       await api.registerStart(fullName: fullName, mobileNumber: mobileNumber, email: email);
@@ -132,10 +153,12 @@ class AuthProvider extends ChangeNotifier {
       if (_pendingFlow == _PendingFlow.passwordReset) {
         await api.forgotPasswordStart(_pendingEmail ?? '');
       } else {
-        // register/start re-issues a fresh OTP for the same details.
+        // register/start re-issues a fresh OTP for the same details the
+        // user typed at step 1 (kept in pending fields — currentUser only
+        // exists after registration completes).
         await api.registerStart(
-          fullName: currentUser?.fullName ?? 'Customer',
-          mobileNumber: currentUser?.mobileNumber ?? '',
+          fullName: _pendingFullName ?? currentUser?.fullName ?? 'Customer',
+          mobileNumber: _pendingMobileNumber ?? currentUser?.mobileNumber ?? '',
           email: _pendingEmail ?? '',
         );
       }
@@ -267,7 +290,10 @@ class AuthProvider extends ChangeNotifier {
 
   void markLocationSaved() {
     _hasSavedLocation = true;
-    PreferencesService.setBool(PreferencesService.kHasSavedLocation, true);
+    final uid = currentUser?.id;
+    if (uid != null && uid.isNotEmpty) {
+      PreferencesService.setBool(PreferencesService.kHasSavedLocationFor(uid), true);
+    }
     notifyListeners();
   }
 
@@ -278,7 +304,8 @@ class AuthProvider extends ChangeNotifier {
     _client.authToken = null;
     await _clearTokens();
     await PreferencesService.remove(PreferencesService.kSessionUser);
-    await PreferencesService.setBool(PreferencesService.kHasSavedLocation, false);
+    // NOTE: per-user data (addresses, favorites, flags) intentionally stays
+    // on disk under its own keys — signing back in restores it.
     notifyListeners();
   }
 
@@ -298,6 +325,11 @@ class AuthProvider extends ChangeNotifier {
       email: me['email'] as String? ?? '',
     );
     status = AuthStatus.signedIn;
+    // Load THIS account's saved-location flag before anyone routes on it.
+    if (currentUser?.id.isNotEmpty == true) {
+      _hasSavedLocation = await PreferencesService.getBool(
+          PreferencesService.kHasSavedLocationFor(currentUser!.id));
+    }
     await _persistSession();
     notifyListeners();
   }

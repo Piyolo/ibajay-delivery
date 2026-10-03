@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import type { ReactNode } from 'react'
-import { AuthContext, DEMO_USERS } from './state/auth'
+import { AuthContext, loginAdmin, restoreAdminSession } from './state/auth'
 import type { AdminUser } from './state/auth'
 import type { Role } from './types'
+import { clearToken } from './lib/api'
 import { LiveProvider } from './state/live'
 import { AdminLayout } from './components/layout/AdminLayout'
 import { LoginPage } from './pages/LoginPage'
@@ -21,36 +22,46 @@ import { SubscriptionsPage } from './pages/SubscriptionsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { AuditLogPage } from './pages/AuditLogPage'
 
-const SESSION_KEY = 'ibaeats.admin.session'
-
-function loadSession(): AdminUser | null {
-  try {
-    const raw = sessionStorage.getItem(SESSION_KEY)
-    return raw ? (JSON.parse(raw) as AdminUser) : null
-  } catch {
-    return null
-  }
-}
-
 export default function App() {
-  const [user, setUser] = useState<AdminUser | null>(loadSession)
+  const [user, setUser] = useState<AdminUser | null>(null)
+  const [booting, setBooting] = useState(true)
+
+  // Restore the session on load by validating the stored token against
+  // /auth/me — closing the tab no longer logs the admin out.
+  useEffect(() => {
+    let alive = true
+    restoreAdminSession().then((restored) => {
+      if (!alive) return
+      setUser(restored)
+      setBooting(false)
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
 
   const auth = useMemo(
     () => ({
       user,
-      signIn: (role: Role) => {
-        // Prototype personas — real auth arrives with the FastAPI backend.
-        const u = DEMO_USERS[role]
-        sessionStorage.setItem(SESSION_KEY, JSON.stringify(u))
+      signInWithPassword: async (mobile: string, password: string) => {
+        const u = await loginAdmin(mobile, password)
         setUser(u)
       },
       signOut: () => {
-        sessionStorage.removeItem(SESSION_KEY)
+        clearToken()
         setUser(null)
       },
     }),
     [user],
   )
+
+  if (booting) {
+    return (
+      <div className="login-wrap">
+        <p className="muted">Restoring session…</p>
+      </div>
+    )
+  }
 
   return (
     <AuthContext.Provider value={auth}>

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 enum StoreStatus { open, busy, paused, closed }
 
 extension StoreStatusX on StoreStatus {
@@ -298,19 +300,6 @@ class VendorProfile {
           : DeliverySettings(),
     );
   }
-
-  /// Store-field updates for PUT /vendor/me (owner name/email are
-  /// user-account fields, not part of this payload).
-  Map<String, dynamic> toStoreApi() => {
-        'store_name': storeName,
-        'description': description,
-        'address': address,
-        'latitude': latitude,
-        'longitude': longitude,
-        'contact_number': mobileNumber,
-        'logo_url': logoUrl.isEmpty ? null : logoUrl,
-        'banner_url': bannerUrl.isEmpty ? null : bannerUrl,
-      };
 }
 
 const List<String> kStoreCategoryOptions = [
@@ -363,3 +352,148 @@ const List<String> kIbajayBarangays = [
   'Tul-ang',
   'Unat',
 ];
+
+/// Ibajay town proper + generous municipality radius — used by the
+/// store-setup map picker to detect pins placed outside the service area.
+/// Source: Ibajay municipal hall ≈ 11°49′16″N 122°09′42″E.
+const double kIbajayTownLat = 11.8211;
+const double kIbajayTownLng = 122.1617;
+const double kIbajayServiceRadiusKm = 15.0;
+
+/// Neighboring municipalities — a reverse-geocoded pick matching one of
+/// these is outside Ibajay even when it slips inside the radius.
+const List<String> kNeighboringMunicipalities = [
+  'nabas',
+  'pandan',
+  'buruanga',
+  'malay',
+  'tangalan',
+  'makato',
+  'altavas',
+  'banga',
+  'kalibo',
+  'numancia',
+  'lezo',
+  'malinao',
+  'libacao',
+  'madalag',
+  'batan',
+  'balete',
+  'new washington',
+];
+
+/// True when [lat]/[lng] is plausibly inside the served municipality.
+bool isInsideIbajay(double lat, double lng) {
+  const r = 6371.0;
+  final dLat = (lat - kIbajayTownLat) * (math.pi / 180);
+  final dLng = (lng - kIbajayTownLng) * (math.pi / 180);
+  final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+      math.cos(kIbajayTownLat * math.pi / 180) *
+          math.cos(lat * math.pi / 180) *
+          math.sin(dLng / 2) *
+          math.sin(dLng / 2);
+  return r * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a)) <=
+      kIbajayServiceRadiusKm;
+}
+
+/// Official barangay census centroids (PhilAtlas, Aug 2026) — used by the
+/// map picker to sanity-check reverse-geocoded barangay labels.
+const Map<String, List<double>> kBarangayCenters = {
+  'Agbago': [11.8088, 122.1464],
+  'Agdugayan': [11.7693, 122.1594],
+  'Antipolo': [11.8021, 122.1226],
+  'Aparicio': [11.6950, 122.1879],
+  'Aquino': [11.8185, 122.1104],
+  'Aslum': [11.8239, 122.1560],
+  'Bagacay': [11.7919, 122.1659],
+  'Batuan': [11.7917, 122.1506],
+  'Buenavista': [11.8014, 122.1803],
+  'Bugtongbato': [11.8061, 122.2094],
+  'Cabugao': [11.7432, 122.1919],
+  'Capilijan': [11.7889, 122.1571],
+  'Colongcolong': [11.8188, 122.1732],
+  'Laguinbanua': [11.8082, 122.1580],
+  'Mabusao': [11.7726, 122.1286],
+  'Malindog': [11.7015, 122.1808],
+  'Maloco': [11.7842, 122.1526],
+  'Mina-a': [11.6669, 122.1927],
+  'Monlaque': [11.7104, 122.1832],
+  'Naile': [11.7666, 122.1765],
+  'Naisud': [11.8055, 122.1941],
+  'Naligusan': [11.7752, 122.1733],
+  'Ondoy': [11.8193, 122.1227],
+  'Poblacion': [11.8188, 122.1607],
+  'Polo': [11.8177, 122.1652],
+  'Regador': [11.7801, 122.2020],
+  'Rivera': [11.7313, 122.2016],
+  'Rizal': [11.7813, 122.1724],
+  'San Isidro': [11.8119, 122.1796],
+  'San Jose': [11.7406, 122.1770],
+  'Santa Cruz': [11.7931, 122.1411],
+  'Tagbaya': [11.8161, 122.1298],
+  'Tul-ang': [11.8085, 122.1675],
+  'Unat': [11.7808, 122.1647],
+};
+
+/// Haversine distance in km between two lat/lng pairs.
+double haversineKm(double lat1, double lng1, double lat2, double lng2) {
+  const r = 6371.0;
+  final dLat = (lat2 - lat1) * (math.pi / 180);
+  final dLng = (lng2 - lng1) * (math.pi / 180);
+  final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+      math.cos(lat1 * math.pi / 180) *
+          math.cos(lat2 * math.pi / 180) *
+          math.sin(dLng / 2) *
+          math.sin(dLng / 2);
+  return r * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+}
+
+/// Nearest known barangay center to [lat]/[lng] and its distance.
+MapEntry<String, double> nearestBarangayTo(double lat, double lng) {
+  String bestName = '';
+  var bestKm = double.infinity;
+  kBarangayCenters.forEach((name, c) {
+    final d = haversineKm(lat, lng, c[0], c[1]);
+    if (d < bestKm) {
+      bestKm = d;
+      bestName = name;
+    }
+  });
+  return MapEntry(bestName, bestKm);
+}
+
+/// Matches a free-text place name to one of Ibajay's barangays,
+/// case/space/hyphen-insensitive. Null when nothing matches.
+String? matchIbajayBarangay(String name) {
+  final n = _normalizePlace(name);
+  if (n.isEmpty) return null;
+  for (final b in kIbajayBarangays) {
+    final key = _normalizePlace(b);
+    if (n == key || n.contains(key) || key.contains(n)) return b;
+  }
+  return null;
+}
+
+/// Barangays whose names start with or contain [query], in list order —
+/// drives the setup screen's type-ahead ("a" -> Agbago, Aquino, Aslum…).
+List<String> suggestIbajayBarangays(String query) {
+  final q = _normalizePlace(query);
+  if (q.isEmpty) return const [];
+  final starts = <String>[];
+  final contains = <String>[];
+  for (final b in kIbajayBarangays) {
+    final key = _normalizePlace(b);
+    if (key.startsWith(q)) {
+      starts.add(b);
+    } else if (key.contains(q)) {
+      contains.add(b);
+    }
+  }
+  return [...starts, ...contains];
+}
+
+/// Approximate center of a barangay (null when unknown).
+List<double>? barangayCenter(String barangay) => kBarangayCenters[barangay];
+
+String _normalizePlace(String s) =>
+    s.toLowerCase().replaceAll(RegExp(r'[\s\-_]'), '');

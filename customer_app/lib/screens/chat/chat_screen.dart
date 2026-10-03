@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../providers/chat_provider.dart';
@@ -16,8 +17,22 @@ class _ChatScreenState extends State<ChatScreen> {
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
 
+  // Captured for dispose(), where inherited lookups are no longer allowed.
+  late final ChatProvider _chat = context.read<ChatProvider>();
+
+  @override
+  void initState() {
+    super.initState();
+    // Loads history + opens the live WebSocket channel for this thread.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _chat.connect(widget.threadId);
+    });
+  }
+
   @override
   void dispose() {
+    // Leave the WS channel when the screen closes.
+    _chat.disconnect();
     _controller.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -26,7 +41,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void _send() {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
-    context.read<ChatProvider>().sendMessage(widget.threadId, content: text);
+    _chat.sendMessage(widget.threadId, content: text);
     _controller.clear();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
@@ -39,15 +54,32 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  void _sendImage() {
-    // Placeholder for image_picker integration — attaches a stand-in URL for now.
-    context.read<ChatProvider>().sendMessage(widget.threadId, imageUrl: 'local_asset://demo_photo.png');
+  /// Picks a photo, uploads it to /uploads, then sends its URL over chat.
+  Future<void> _sendImage() async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final picked = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 75,
+        maxWidth: 1280,
+      );
+      if (picked == null || !mounted) return;
+      final url = await _chat.uploadImage(picked.path);
+      if (!mounted) return;
+      _chat.sendMessage(widget.threadId, imageUrl: url);
+    } catch (_) {
+      messenger.showSnackBar(
+          const SnackBar(content: Text('Could not send the photo — try again')));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final chatProvider = context.watch<ChatProvider>();
-    final thread = chatProvider.threads.firstWhere((t) => t.id == widget.threadId);
+    final thread = chatProvider.threadById(widget.threadId);
+    if (thread == null) {
+      return const Scaffold(body: Center(child: Text('Conversation not found')));
+    }
 
     return Scaffold(
       appBar: AppBar(title: Text(thread.vendorName)),
@@ -64,7 +96,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     itemCount: thread.messages.length,
                     itemBuilder: (context, i) {
                       final m = thread.messages[i];
-                      final isMe = m.senderId == 'me';
+                      final isMe = m.fromMe;
                       return Align(
                         alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
                         child: Container(
@@ -78,16 +110,32 @@ class _ChatScreenState extends State<ChatScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              if (m.imageUrl != null)
-                                Container(
-                                  width: 160,
-                                  height: 120,
-                                  margin: const EdgeInsets.only(bottom: 6),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black12,
-                                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                              if (m.imageUrl != null && m.imageUrl!.startsWith('http'))
+                                GestureDetector(
+                                  onTap: () => showDialog(
+                                    context: context,
+                                    builder: (_) => Dialog(
+                                      child: InteractiveViewer(
+                                        child: Image.network(m.imageUrl!),
+                                      ),
+                                    ),
                                   ),
-                                  child: Icon(Icons.image, color: isMe ? Colors.white70 : AppColors.textSecondary),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                                    child: Image.network(
+                                      m.imageUrl!,
+                                      width: 160,
+                                      height: 120,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => Container(
+                                        width: 160,
+                                        height: 120,
+                                        color: Colors.black12,
+                                        child: Icon(Icons.image,
+                                            color: isMe ? Colors.white70 : AppColors.textSecondary),
+                                      ),
+                                    ),
+                                  ),
                                 ),
                               if (m.content != null)
                                 Text(

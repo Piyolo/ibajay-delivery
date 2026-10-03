@@ -1,10 +1,7 @@
-import 'dart:developer' as dev;
-
 import '../constants/location_constants.dart';
 import '../models/review.dart';
 import '../models/vendor.dart';
 import '../services/api_client.dart';
-import 'mock_vendor_repository.dart';
 import 'vendor_repository.dart';
 
 /// Live implementation of [VendorRepository] backed by the FastAPI backend
@@ -16,45 +13,63 @@ import 'vendor_repository.dart';
 /// Foods" and search logic. Ibajay is small — a handful of parallel
 /// profile requests is fine.
 ///
-/// If the backend is unreachable (server off, no network, dev machine
-/// asleep), it falls back to [MockVendorRepository] so the app stays
-/// browsable offline; a warning is logged.
+/// All failures are rethrown so the UI shows an honest error state —
+/// masking connectivity problems with fabricated stores would misrepresent
+/// the platform during beta.
 class ApiVendorRepository implements VendorRepository {
   ApiVendorRepository({ApiClient? client}) : _client = client ?? ApiClient();
 
   final ApiClient _client;
-  final MockVendorRepository _fallback = MockVendorRepository();
 
   @override
-  Future<List<VendorProfile>> fetchVendors() async {
+  Future<List<VendorProfile>> fetchVendors({double? refLat, double? refLng}) async {
     try {
       final cards = await _client.get(
         '/vendors/nearby',
         {
-          'lat': '${LocationConstants.townLat}',
-          'lng': '${LocationConstants.townLng}',
+          'lat': '${refLat ?? LocationConstants.townLat}',
+          'lng': '${refLng ?? LocationConstants.townLng}',
         },
       ) as List;
 
+      // A card id must be a UUID for /vendors/{id} to resolve — anything
+      // else means the payload shape changed; don't build garbage requests.
+      final ids = cards
+          .map((card) => (card as Map<String, dynamic>)['id'])
+          .whereType<String>()
+          .where(_isUuid)
+          .toList();
+
       final profiles = await Future.wait(
-        cards.map((card) async {
-          final id = (card as Map<String, dynamic>)['id'] as String;
+        ids.map((id) async {
           final json = await _client.get('/vendors/$id') as Map<String, dynamic>;
           return _profileFromApi(json);
         }),
       );
       return profiles;
-    } catch (error) {
-      dev.log('API unreachable, falling back to mock vendor data: $error');
-      return _fallback.fetchVendors();
+    } on ApiException {
+      // Transport or HTTP failure alike: surface it. Never substitute
+      // fabricated stores for the real (possibly empty) marketplace.
+      rethrow;
     }
   }
 
+  static bool _isUuid(String value) => RegExp(
+        r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+      ).hasMatch(value);
+
   @override
   Future<List<VendorReview>> fetchReviews(String vendorId) async {
-    // No reviews endpoint on the backend yet — the ratings/reviews tables
-    // exist, but the router is still pending. Return empty for now.
-    return [];
+    try {
+      final rows = await _client.get('/vendors/$vendorId/reviews', {'limit': '50'}) as List;
+      return rows
+          .map((e) => VendorReview.fromApi(e as Map<String, dynamic>))
+          .toList();
+    } on ApiException catch (error) {
+      if (error.statusCode != null && error.statusCode != 404) rethrow;
+      // No reviews yet (or offline) — an empty list is the honest state.
+      return [];
+    }
   }
 
   // --- snake_case API -> camelCase app models ---
@@ -83,9 +98,15 @@ class ApiVendorRepository implements VendorRepository {
         baseDeliveryFee: (json['base_delivery_fee'] as num?)?.toDouble() ?? 30,
         perKmFee: (json['fee_per_km'] as num?)?.toDouble() ?? 8,
         estimatedPrepMinutes: (json['estimated_prep_minutes'] as num?)?.toInt() ?? 20,
+        deliveryBarangays:
+            (json['delivery_barangays'] as List?)?.cast<String>().toList() ?? const [],
       ),
       menu: (json['food_items'] as List?)
               ?.map((e) => _foodFromApi(e as Map<String, dynamic>, vendorId))
+              .toList() ??
+          [],
+      promotions: (json['promotions'] as List?)
+              ?.map((e) => StorePromo.fromJson(e as Map<String, dynamic>))
               .toList() ??
           [],
     );

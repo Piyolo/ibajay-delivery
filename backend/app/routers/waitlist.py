@@ -1,18 +1,13 @@
-import asyncio
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
 from app.core.db import get_db
 from app.models.waitlist import WaitlistEntry
-from app.services.email import send_waitlist_alert, send_waitlist_confirmation
 
 router = APIRouter(prefix="/waitlist", tags=["Waitlist"])
-settings = get_settings()
 
 
 class WaitlistJoin(BaseModel):
@@ -41,17 +36,6 @@ class WaitlistJoined(BaseModel):
     already_registered: bool = False
 
 
-class WaitlistCount(BaseModel):
-    count: int
-
-
-@router.get("/count", response_model=WaitlistCount)
-async def waitlist_count(db: AsyncSession = Depends(get_db)):
-    """Public signup counter for the homepage. Only the total — no personal data."""
-    total = await db.scalar(select(func.count()).select_from(WaitlistEntry))
-    return WaitlistCount(count=total or 0)
-
-
 @router.post("", response_model=WaitlistJoined, status_code=status.HTTP_200_OK)
 async def join_waitlist(payload: WaitlistJoin, db: AsyncSession = Depends(get_db)):
     """Add an email to the pre-launch waitlist. Idempotent per email."""
@@ -70,15 +54,5 @@ async def join_waitlist(payload: WaitlistJoin, db: AsyncSession = Depends(get_db
         # Raced another request for the same email.
         await db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, "This email is already on the waitlist")
-
-    # Emails are best-effort: a Resend outage must never fail the signup itself.
-    async def _emails():
-        try:
-            await send_waitlist_confirmation(entry.email, entry.name, entry.interest)
-            await send_waitlist_alert(entry.name, entry.email, entry.interest)
-        except Exception:
-            pass  # logged by the email layer on hard failures; signup still counts
-
-    asyncio.create_task(_emails())
 
     return WaitlistJoined(message="You're on the list — salamat! We'll email you when Ibajay Eats launches.")

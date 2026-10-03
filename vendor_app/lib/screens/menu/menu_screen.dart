@@ -175,7 +175,7 @@ class _FoodTile extends StatelessWidget {
                   children: [
                     Text(item.name, style: const TextStyle(fontWeight: FontWeight.w700)),
                     const SizedBox(height: 2),
-                    Text('₱${item.price.toStringAsFixed(0)} · ${item.totalSold} sold',
+                    Text('₱${item.price.toStringAsFixed(0)}',
                         style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
                   ],
                 ),

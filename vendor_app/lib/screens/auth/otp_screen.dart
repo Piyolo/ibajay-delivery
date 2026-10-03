@@ -184,8 +184,8 @@ class _OtpScreenState extends State<OtpScreen> {
 
   Widget _otpBox(int index) {
     return SizedBox(
-      width: 48,
-      height: 58,
+      width: 50,
+      height: 64,
       child: TextField(
         controller: _controllers[index],
         focusNode: _nodes[index],
@@ -194,19 +194,18 @@ class _OtpScreenState extends State<OtpScreen> {
         keyboardType: TextInputType.number,
         maxLength: 1,
         inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-        style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700, height: 1.0),
+        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
         decoration: InputDecoration(
           counterText: '',
-          isDense: true,
-          contentPadding: EdgeInsets.zero,
           filled: true,
           fillColor: AppColors.surfaceMuted,
+          contentPadding: const EdgeInsets.symmetric(vertical: 18),
           enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(14),
             borderSide: BorderSide.none,
           ),
           focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(14),
             borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
           ),
         ),

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'dashboard/dashboard_screen.dart';
@@ -5,6 +7,7 @@ import 'orders/orders_dashboard_screen.dart';
 import 'menu/menu_screen.dart';
 import 'chat/chat_list_screen.dart';
 import 'settings/store_settings_screen.dart';
+import '../providers/chat_provider.dart';
 import '../providers/menu_provider.dart';
 import '../providers/order_provider.dart';
 import '../theme/app_theme.dart';
@@ -18,18 +21,33 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int _index = 0;
+  Timer? _refreshTimer;
 
   void _goToTab(int i) => setState(() => _index = i);
 
   @override
   void initState() {
     super.initState();
-    // Pull the live menu + order inbox once the shell (post-login) mounts.
+    // Pull the live menu + order inbox once the shell (post-login) mounts,
+    // then keep polling so new orders/chats appear without a restart (the
+    // backend pushes push notifications/WS events, but a light poll keeps
+    // this simple and reliable).
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       context.read<MenuProvider>().load();
       context.read<OrderProvider>().load();
+      _refreshTimer = Timer.periodic(const Duration(seconds: 25), (_) {
+        if (!mounted) return;
+        context.read<OrderProvider>().load();
+        if (_index == 3) context.read<ChatProvider>().loadThreads();
+      });
     });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
   }
 
   @override

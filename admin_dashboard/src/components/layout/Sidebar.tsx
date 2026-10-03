@@ -15,7 +15,16 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import type { Role } from '../../types'
 import { useAuth } from '../../state/auth'
-import { kpis } from '../../data/mockDb'
+import { useAsyncData } from '../../state/live'
+import { api } from '../../lib/api'
+
+interface OverviewMini {
+  orders_today: number
+  orders_active: number
+  vendors_total: number
+  vendors_verified: number
+  customers_total: number
+}
 
 interface NavItem {
   to: string
@@ -76,7 +85,14 @@ const SECTIONS: NavSection[] = [
 export function Sidebar() {
   const { user } = useAuth()
   const role = user?.role ?? 'staff'
-  const pending = kpis().pendingApprovals
+  const overview = useAsyncData(async () => {
+    try {
+      return await api<OverviewMini>('/admin/overview')
+    } catch {
+      return null
+    }
+  }).data
+  const pending = overview ? Math.max(0, overview.vendors_total - overview.vendors_verified) : 0
 
   return (
     <aside className="sidebar">
@@ -119,9 +135,11 @@ export function Sidebar() {
       </nav>
 
       <div className="sb-footer">
-        Beta v0.1 · Stage 1 prototype
+        {overview
+          ? `${overview.orders_today} orders today · ${overview.orders_active} live`
+          : 'Connecting…'}
         <br />
-        Mock data only
+        Live backend · admin console
       </div>
     </aside>
   )

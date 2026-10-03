@@ -14,7 +14,6 @@ class FoodItem {
   bool isAvailable;
   bool isFeatured;
   List<FoodAddon> addons;
-  int totalSold;
 
   FoodItem({
     required this.id,
@@ -26,7 +25,6 @@ class FoodItem {
     this.isAvailable = true,
     this.isFeatured = false,
     List<FoodAddon>? addons,
-    this.totalSold = 0,
   }) : addons = addons ?? [];
 
   /// Maps the backend's menu-item payload (snake_case, option groups with
@@ -39,21 +37,25 @@ class FoodItem {
       for (final choice in (group as Map<String, dynamic>)['choices'] as List? ?? []) {
         final c = choice as Map<String, dynamic>;
         addons.add(FoodAddon(
-          name: c['label'] as String? ?? '',
-          price: (c['extra_price'] as num?)?.toDouble() ?? 0,
+          name: (c['label'] ?? c['name']) as String? ?? '',
+          price: ((c['extra_price'] ?? c['extraPrice'] ?? c['price']) as num?)?.toDouble() ?? 0,
         ));
       }
     }
-    final images = (json['images'] as List?)?.cast<String>().toList() ?? const [];
+    final rawImages = json['images'] as List?;
+    final images = rawImages?.cast<String>().toList() ?? const [];
+    final directImage = json['imageUrl'] as String?;
     return FoodItem(
-      id: json['id'] as String,
+      id: json['id'] as String? ?? '',
       name: json['name'] as String? ?? '',
       description: json['description'] as String? ?? '',
       price: (json['price'] as num?)?.toDouble() ?? 0,
       category: json['category'] as String? ?? '',
-      imageUrl: images.isNotEmpty ? images.first : '',
-      isAvailable: json['is_available'] as bool? ?? true,
-      isFeatured: json['is_featured'] as bool? ?? false,
+      imageUrl: (directImage != null && directImage.isNotEmpty)
+          ? directImage
+          : (images.isNotEmpty ? images.first : ''),
+      isAvailable: (json['is_available'] ?? json['isAvailable']) as bool? ?? true,
+      isFeatured: (json['is_featured'] ?? json['isFeatured']) as bool? ?? false,
       addons: addons,
     );
   }

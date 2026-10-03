@@ -43,6 +43,7 @@ class Address(Base):
 
     label: Mapped[str] = mapped_column(String(50), default="Home")  # Home, Work, Other
     full_address: Mapped[str] = mapped_column(String(500), nullable=False)
+    barangay: Mapped[str] = mapped_column(String(100), default="", nullable=False)
     latitude: Mapped[float] = mapped_column(nullable=False)
     longitude: Mapped[float] = mapped_column(nullable=False)
     landmark: Mapped[str | None] = mapped_column(String(255), nullable=True)

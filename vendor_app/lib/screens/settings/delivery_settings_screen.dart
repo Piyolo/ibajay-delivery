@@ -14,7 +14,9 @@ class DeliverySettingsScreen extends StatefulWidget {
 
 class _DeliverySettingsScreenState extends State<DeliverySettingsScreen> {
   late DeliverySettings _settings;
+  late TextEditingController _feeController;
   String _search = '';
+  bool _saving = false;
 
   @override
   void initState() {
@@ -28,10 +30,26 @@ class _DeliverySettingsScreenState extends State<DeliverySettingsScreen> {
       deliveryBarangays: [...current.deliveryBarangays],
       baseDeliveryFee: current.baseDeliveryFee,
     );
+    _feeController = TextEditingController(text: current.baseDeliveryFee.toStringAsFixed(0));
   }
 
-  void _save() {
-    context.read<VendorProvider>().updateDeliverySettings(_settings);
+  @override
+  void dispose() {
+    _feeController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    final provider = context.read<VendorProvider>();
+    await provider.updateDeliverySettings(_settings);
+    if (!mounted) return;
+    setState(() => _saving = false);
+    if (provider.lastError != null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Not saved — ${provider.lastError}')));
+      return;
+    }
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Delivery settings saved')));
     Navigator.of(context).pop();
   }
@@ -49,7 +67,14 @@ class _DeliverySettingsScreenState extends State<DeliverySettingsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Delivery Settings'),
-        actions: [TextButton(onPressed: _save, child: const Text('Save'))],
+        actions: [
+          TextButton(
+            onPressed: _saving ? null : _save,
+            child: _saving
+                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Text('Save'),
+          ),
+        ],
       ),
       body: SafeArea(
         child: ListView(
@@ -77,6 +102,7 @@ class _DeliverySettingsScreenState extends State<DeliverySettingsScreen> {
             const Text('Delivery Fee (₱)', style: TextStyle(fontWeight: FontWeight.w700)),
             const SizedBox(height: 10),
             _feeRow(
+              controller: _feeController,
               label: 'Flat delivery fee',
               value: _settings.baseDeliveryFee,
               onChanged: (v) => setState(() => _settings.baseDeliveryFee = v),
@@ -179,8 +205,12 @@ class _DeliverySettingsScreenState extends State<DeliverySettingsScreen> {
     );
   }
 
-  Widget _feeRow({required String label, required double value, required ValueChanged<double> onChanged}) {
-    final controller = TextEditingController(text: value.toStringAsFixed(0));
+  Widget _feeRow({
+    required TextEditingController controller,
+    required String label,
+    required double value,
+    required ValueChanged<double> onChanged,
+  }) {
     return Row(
       children: [
         Expanded(child: Text(label)),

@@ -119,11 +119,22 @@ class ApiClient {
       };
 
   dynamic _handle(http.Response response) {
-    final decoded = response.body.isEmpty ? null : jsonDecode(response.body);
+    dynamic decoded;
+    if (response.body.isNotEmpty) {
+      try {
+        decoded = jsonDecode(response.body);
+      } catch (_) {
+        decoded = null;
+      }
+    }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       final message = decoded is Map<String, dynamic> && decoded['detail'] != null
           ? decoded['detail'].toString()
-          : 'Request failed (${response.statusCode})';
+          : (decoded is String && decoded.isNotEmpty
+              ? decoded
+              : (response.statusCode >= 500
+                  ? 'Server error (${response.statusCode}). Please try again shortly.'
+                  : 'Request failed (${response.statusCode})'));
       throw ApiException(message, statusCode: response.statusCode);
     }
     return decoded;

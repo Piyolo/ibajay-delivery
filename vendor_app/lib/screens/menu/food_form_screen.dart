@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../models/food_item.dart';
 import '../../models/vendor.dart';
 import '../../providers/menu_provider.dart';
+import '../../providers/vendor_provider.dart';
 import '../../theme/app_theme.dart';
 
 class FoodFormScreen extends StatefulWidget {
@@ -75,42 +76,15 @@ class _FoodFormScreenState extends State<FoodFormScreen> {
     if (mounted) setState(() => _uploading = false);
   }
 
-  void _addAddonDialog() {
-    final nameCtrl = TextEditingController();
-    final priceCtrl = TextEditingController();
-    showDialog(
+  Future<void> _addAddonDialog() async {
+    final addon = await showDialog<FoodAddon>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Add Extra / Add-on'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(controller: nameCtrl, decoration: const InputDecoration(hintText: 'e.g. Extra Cheese')),
-            const SizedBox(height: 10),
-            TextField(
-              controller: priceCtrl,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(hintText: 'Price (e.g. 20)'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () {
-              final price = double.tryParse(priceCtrl.text) ?? 0;
-              if (nameCtrl.text.trim().isEmpty) return;
-              setState(() => _addons.add(FoodAddon(name: nameCtrl.text.trim(), price: price)));
-              Navigator.pop(dialogContext);
-            },
-            child: const Text('Add'),
-          ),
-        ],
-      ),
-    ).then((_) {
-      nameCtrl.dispose();
-      priceCtrl.dispose();
-    });
+      builder: (_) => const _AddAddonDialog(),
+    );
+
+    if (addon != null && mounted) {
+      setState(() => _addons.add(addon));
+    }
   }
 
   Future<void> _save() async {
@@ -265,20 +239,37 @@ class _FoodFormScreenState extends State<FoodFormScreen> {
                     ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('Category', style: TextStyle(fontWeight: FontWeight.w600)),
-                          const SizedBox(height: 6),
-                          DropdownButtonFormField<String>(
-                            initialValue: _category,
-                            decoration: const InputDecoration(),
-                            items: kStoreCategoryOptions
-                                .map((c) => DropdownMenuItem(value: c, child: Text(c)))
-                                .toList(),
-                            onChanged: (v) => setState(() => _category = v ?? _category),
-                          ),
-                        ],
+                      child: Builder(
+                        builder: (context) {
+                          final vendor = context.watch<VendorProvider>().vendor;
+                          final availableCategories = {
+                            ...kStoreCategoryOptions,
+                            ...vendor.categories,
+                            if (_category.isNotEmpty) _category,
+                          }.toList();
+                          final selectedCategory = availableCategories.contains(_category)
+                              ? _category
+                              : (availableCategories.isNotEmpty ? availableCategories.first : 'Meals');
+
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('Category', style: TextStyle(fontWeight: FontWeight.w600)),
+                              const SizedBox(height: 6),
+                              DropdownButtonFormField<String>(
+                                key: ValueKey(selectedCategory),
+                                initialValue: selectedCategory,
+                                decoration: const InputDecoration(),
+                                items: availableCategories
+                                    .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                                    .toList(),
+                                onChanged: (v) {
+                                  if (v != null) setState(() => _category = v);
+                                },
+                              ),
+                            ],
+                          );
+                        },
                       ),
                     ),
                   ],
@@ -313,20 +304,59 @@ class _FoodFormScreenState extends State<FoodFormScreen> {
                     ),
                   ],
                 ),
-                ..._addons.map((a) => ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(a.name),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
+                const SizedBox(height: 6),
+                if (_addons.isEmpty)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceMuted,
+                      borderRadius: BorderRadius.circular(AppRadius.md),
+                    ),
+                    child: const Text(
+                      'No add-ons yet. Tap "+ Add" above to add choices like extra toppings, sauce, or upgrades.',
+                      style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                    ),
+                  )
+                else
+                  ..._addons.asMap().entries.map((entry) {
+                    final index = entry.key;
+                    final a = entry.value;
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: Row(
                         children: [
-                          Text('+₱${a.price.toStringAsFixed(0)}'),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(a.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                                Text(
+                                  a.price > 0 ? '+₱${a.price.toStringAsFixed(0)}' : 'Free',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.primary,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                           IconButton(
-                            icon: const Icon(Icons.close, size: 18),
-                            onPressed: () => setState(() => _addons.remove(a)),
+                            icon: const Icon(Icons.delete_outline, size: 20, color: AppColors.danger),
+                            tooltip: 'Remove',
+                            onPressed: () => setState(() => _addons.removeAt(index)),
                           ),
                         ],
                       ),
-                    )),
+                    );
+                  }),
                 const SizedBox(height: 24),
                 ElevatedButton(
                   onPressed: _saving ? null : _save,
@@ -355,6 +385,85 @@ class _FoodFormScreenState extends State<FoodFormScreen> {
           Text('Upload photo', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
         ],
       ),
+    );
+  }
+}
+
+class _AddAddonDialog extends StatefulWidget {
+  const _AddAddonDialog();
+
+  @override
+  State<_AddAddonDialog> createState() => _AddAddonDialogState();
+}
+
+class _AddAddonDialogState extends State<_AddAddonDialog> {
+  late final TextEditingController _nameCtrl;
+  late final TextEditingController _priceCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameCtrl = TextEditingController();
+    _priceCtrl = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _priceCtrl.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final name = _nameCtrl.text.trim();
+    if (name.isEmpty) return;
+    final price = double.tryParse(_priceCtrl.text.trim()) ?? 0;
+    Navigator.of(context).pop(FoodAddon(name: name, price: price));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Add Extra / Add-on'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _nameCtrl,
+              autofocus: true,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                hintText: 'e.g. Extra Cheese',
+                labelText: 'Add-on Name',
+              ),
+              textInputAction: TextInputAction.next,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _priceCtrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                hintText: '20',
+                labelText: 'Price (₱)',
+                prefixText: '₱ ',
+              ),
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _submit(),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: _submit,
+          child: const Text('Add'),
+        ),
+      ],
     );
   }
 }

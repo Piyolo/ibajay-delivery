@@ -1,26 +1,37 @@
 import { Link } from 'react-router-dom'
-import { bestSellers, monthlySeries, revenueSeries, topVendors, vendors } from '../../data/mockDb'
+import { api } from '../../lib/api'
 import { money, num } from '../../lib/format'
 import {
-  Badge,
   Card,
   CardHead,
   initials,
   KpiCard,
   PageHeader,
-  Stars,
 } from '../../components/ui/primitives'
 import { GrowthLineChart, RevenueAreaChart } from '../../components/charts/charts'
 import { useAsyncData } from '../../state/live'
+import type { AdminVendorRow } from '../vendorAdmin'
+import {
+  bestSellers,
+  monthlySeries,
+  revenueSeries,
+  topVendorsByRevenue,
+  type AdminOrderRow,
+} from './series'
+
+type VendorRow = AdminVendorRow & { created_at?: string | null }
 
 export function AnalyticsOverviewPage() {
-  const series = useAsyncData(() => revenueSeries(14)).data ?? []
+  const orders = useAsyncData(() => api<AdminOrderRow[]>('/admin/orders', { query: { limit: 500 } })).data ?? []
+  const vendors = useAsyncData(() => api<VendorRow[]>('/admin/vendors')).data ?? []
+
+  const series = revenueSeries(orders, 14)
   const totalRevenue = series.reduce((s, d) => s + d.revenue, 0)
   const totalOrders = series.reduce((s, d) => s + d.orders, 0)
 
-  const approved = vendors.filter((v) => v.status === 'approved')
-  const pending = vendors.filter((v) => v.status === 'pending')
-  const suspended = vendors.filter((v) => v.status === 'suspended')
+  const open = vendors.filter((v) => v.is_open && !v.is_paused)
+  const paused = vendors.filter((v) => v.is_paused)
+  const closed = vendors.filter((v) => !v.is_open && !v.is_paused)
 
   return (
     <>
@@ -32,8 +43,8 @@ export function AnalyticsOverviewPage() {
       <div className="grid-kpi">
         <KpiCard label="Revenue (14d)" value={money(totalRevenue)} />
         <KpiCard label="Orders (14d)" value={num(totalOrders)} />
-        <KpiCard label="Active Vendors" value={approved.length} />
-        <KpiCard label="Pending Applications" value={pending.length} deltaGoodDirection="down" />
+        <KpiCard label="Open Vendors" value={open.length} />
+        <KpiCard label="Unverified Stores" value={vendors.filter((v) => !v.is_verified).length} deltaGoodDirection="down" />
       </div>
 
       <Card>
@@ -45,12 +56,12 @@ export function AnalyticsOverviewPage() {
         <Card>
           <CardHead title="Vendor funnel" />
           <div className="card-pad">
-            <FunnelRow label="Approved & live" value={approved.length} total={vendors.length} color="#2e9e5b" />
-            <FunnelRow label="Pending review" value={pending.length} total={vendors.length} color="#de9e20" />
-            <FunnelRow label="Suspended" value={suspended.length} total={vendors.length} color="#d64545" />
+            <FunnelRow label="Open & live" value={open.length} total={vendors.length} color="#2e9e5b" />
+            <FunnelRow label="Paused" value={paused.length} total={vendors.length} color="#de9e20" />
+            <FunnelRow label="Closed" value={closed.length} total={vendors.length} color="#d64545" />
             <FunnelRow
               label="Verified businesses"
-              value={approved.filter((v) => v.verification === 'verified').length}
+              value={vendors.filter((v) => v.is_verified).length}
               total={vendors.length}
               color="#3378c9"
             />
@@ -60,11 +71,10 @@ export function AnalyticsOverviewPage() {
         <Card>
           <CardHead title="Top products by units sold" action={<Link to="/analytics/sales" className="link">Sales</Link>} />
           <div>
-            {bestSellers(6).map((p) => (
-              <div key={`${p.vendorId}-${p.name}`} className="list-row">
+            {bestSellers(orders, 6).map((p) => (
+              <div key={p.name} className="list-row">
                 <div>
                   <div className="cell-main small">{p.name}</div>
-                  <div className="cell-sub">{p.vendorName}</div>
                 </div>
                 <div style={{ marginLeft: 'auto' }} className="mono small">{num(p.unitsSold)} · {money(p.revenue)}</div>
               </div>
@@ -74,37 +84,33 @@ export function AnalyticsOverviewPage() {
       </div>
 
       <Card style={{ marginTop: 14 }}>
-        <CardHead title="Vendor leaderboard — lifetime revenue" action={<Link to="/analytics/vendors" className="link">Vendor analytics</Link>} />
+        <CardHead title="Vendor leaderboard — revenue" action={<Link to="/analytics/vendors" className="link">Vendor analytics</Link>} />
         <div className="table-wrap">
           <table className="tbl">
             <thead>
               <tr>
                 <th>#</th>
                 <th>Store</th>
-                <th>Rating</th>
                 <th className="num">Orders</th>
                 <th className="num">Revenue</th>
-                <th>Plan</th>
               </tr>
             </thead>
             <tbody>
-              {topVendors(8).map((v, i) => (
-                <tr key={v.id}>
+              {topVendorsByRevenue(orders, 8).map((v, i) => (
+                <tr key={v.storeName}>
                   <td className="muted mono">{i + 1}</td>
                   <td>
-                    <Link to={`/vendors/${v.id}`} className="row-flex">
-                      <div className="mini-avatar">{initials(v.storeName)}</div>
+                    {v.id ? (
+                      <Link to={`/vendors/${v.id}`} className="row-flex">
+                        <div className="mini-avatar">{initials(v.storeName)}</div>
+                        <span className="cell-main">{v.storeName}</span>
+                      </Link>
+                    ) : (
                       <span className="cell-main">{v.storeName}</span>
-                    </Link>
+                    )}
                   </td>
-                  <td><Stars rating={v.rating} /></td>
                   <td className="num">{num(v.ordersCount)}</td>
                   <td className="num">{money(v.revenue)}</td>
-                  <td>
-                    <Badge tone={v.plan === 'founding' ? 'orange' : v.plan === 'plus' ? 'purple' : 'gray'} dot={false}>
-                      {v.plan === 'founding' ? 'Founding' : v.plan === 'plus' ? 'Plus' : 'Free'}
-                    </Badge>
-                  </td>
                 </tr>
               ))}
             </tbody>
@@ -142,29 +148,21 @@ function FunnelRow({
 }
 
 export function VendorAnalyticsPage() {
-  const growth = useAsyncData(() => {
-    // Vendor count over the last 8 months, derived from join dates.
-    const months: Array<{ label: string; vendors: number }> = []
-    for (let i = 7; i >= 0; i--) {
-      const ref = new Date()
-      ref.setDate(1)
-      ref.setMonth(ref.getMonth() - i)
-      ref.setHours(23, 59, 59)
-      const count = vendors.filter(
-        (v) => new Date(`${v.joinedAt}T23:59:59`) <= ref && v.status !== 'rejected',
-      ).length
-      months.push({ label: ref.toLocaleDateString('en-PH', { month: 'short' }), vendors: count })
-    }
-    return months
-  }).data ?? []
+  const vendors = useAsyncData(() => api<VendorRow[]>('/admin/vendors')).data ?? []
+  const orders = useAsyncData(() => api<AdminOrderRow[]>('/admin/orders', { query: { limit: 500 } })).data ?? []
 
-  const approved = vendors.filter((v) => v.status === 'approved')
-  const revenueByPlan = ['free', 'plus', 'founding'].map((plan) => ({
-    plan,
-    vendors: approved.filter((v) => v.plan === plan).length,
-    revenue: approved.filter((v) => v.plan === plan).reduce((s, v) => s + v.revenue, 0),
-  }))
-  const monthly = useAsyncData(() => monthlySeries(4)).data ?? []
+  const growth: Array<{ label: string; vendors: number }> = []
+  {
+    const now = new Date()
+    for (let i = 7; i >= 0; i--) {
+      const ref = new Date(now.getFullYear(), now.getMonth() - i + 1, 0)
+      const count = vendors.filter((v) => v.created_at && new Date(v.created_at) <= ref).length
+      growth.push({ label: ref.toLocaleDateString('en-PH', { month: 'short' }), vendors: count })
+    }
+  }
+
+  const open = vendors.filter((v) => v.is_open && !v.is_paused)
+  const monthly = monthlySeries(orders, 4)
 
   return (
     <>
@@ -175,9 +173,9 @@ export function VendorAnalyticsPage() {
 
       <div className="grid-kpi">
         <KpiCard label="Total Vendors" value={vendors.length} />
-        <KpiCard label="Active" value={approved.length} />
-        <KpiCard label="Pending Review" value={vendors.filter((v) => v.status === 'pending').length} deltaGoodDirection="down" />
-        <KpiCard label="Suspended" value={vendors.filter((v) => v.status === 'suspended').length} deltaGoodDirection="down" />
+        <KpiCard label="Open" value={open.length} />
+        <KpiCard label="Paused" value={vendors.filter((v) => v.is_paused).length} />
+        <KpiCard label="Closed" value={vendors.filter((v) => !v.is_open && !v.is_paused).length} />
       </div>
 
       <div className="grid-2">
@@ -189,28 +187,24 @@ export function VendorAnalyticsPage() {
         </Card>
 
         <Card>
-          <CardHead title="Revenue by subscription plan" />
+          <CardHead title="Verified vs unverified" />
           <div className="table-wrap">
             <table className="tbl">
               <thead>
                 <tr>
-                  <th>Plan</th>
+                  <th>State</th>
                   <th className="num">Vendors</th>
-                  <th className="num">Lifetime revenue</th>
-                  <th className="num">Avg / vendor</th>
                 </tr>
               </thead>
               <tbody>
-                {revenueByPlan.map((r) => (
-                  <tr key={r.plan}>
-                    <td className="cell-main" style={{ textTransform: 'capitalize' }}>
-                      {r.plan === 'founding' ? 'Founding Vendor' : r.plan}
-                    </td>
-                    <td className="num">{r.vendors}</td>
-                    <td className="num">{money(r.revenue)}</td>
-                    <td className="num">{money(r.vendors ? Math.round(r.revenue / r.vendors) : 0)}</td>
-                  </tr>
-                ))}
+                <tr>
+                  <td className="cell-main">Verified</td>
+                  <td className="num">{vendors.filter((v) => v.is_verified).length}</td>
+                </tr>
+                <tr>
+                  <td className="cell-main">Unverified</td>
+                  <td className="num">{vendors.filter((v) => !v.is_verified).length}</td>
+                </tr>
               </tbody>
             </table>
           </div>

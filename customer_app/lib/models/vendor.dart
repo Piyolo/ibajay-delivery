@@ -178,8 +178,8 @@ class FoodOptionChoiceRef {
 
   factory FoodOptionChoiceRef.fromJson(Map<String, dynamic> json) {
     return FoodOptionChoiceRef(
-      label: json['label'] as String? ?? '',
-      extraPrice: (json['extraPrice'] as num?)?.toDouble() ?? 0,
+      label: (json['label'] ?? json['name']) as String? ?? '',
+      extraPrice: ((json['extraPrice'] ?? json['extra_price'] ?? json['price']) as num?)?.toDouble() ?? 0,
     );
   }
 }
@@ -198,9 +198,9 @@ class FoodOptionGroupRef {
 
   factory FoodOptionGroupRef.fromJson(Map<String, dynamic> json) {
     return FoodOptionGroupRef(
-      groupName: json['groupName'] as String? ?? '',
-      isRequired: json['isRequired'] as bool? ?? false,
-      allowMultiple: json['allowMultiple'] as bool? ?? true,
+      groupName: (json['groupName'] ?? json['group_name'] ?? json['name']) as String? ?? '',
+      isRequired: (json['isRequired'] ?? json['is_required']) as bool? ?? false,
+      allowMultiple: (json['allowMultiple'] ?? json['allow_multiple']) as bool? ?? true,
       choices: (json['choices'] as List?)
               ?.map((e) => FoodOptionChoiceRef.fromJson(e as Map<String, dynamic>))
               .toList() ??
@@ -235,15 +235,21 @@ class FoodItemRef {
   }) : options = options ?? [];
 
   factory FoodItemRef.fromJson(Map<String, dynamic> json, String vendorId) {
+    final rawImages = json['images'] as List?;
+    final images = rawImages?.cast<String>().toList() ?? const [];
+    final directImage = json['imageUrl'] as String?;
     return FoodItemRef(
-      id: json['id'] as String,
+      id: json['id'] as String? ?? '',
       vendorId: vendorId,
       name: json['name'] as String? ?? '',
       description: json['description'] as String? ?? '',
       price: (json['price'] as num?)?.toDouble() ?? 0,
       category: json['category'] as String? ?? '',
-      isAvailable: json['isAvailable'] as bool? ?? true,
-      isFeatured: json['isFeatured'] as bool? ?? false,
+      imageUrl: (directImage != null && directImage.isNotEmpty)
+          ? directImage
+          : (images.isNotEmpty ? images.first : ''),
+      isAvailable: (json['isAvailable'] ?? json['is_available']) as bool? ?? true,
+      isFeatured: (json['isFeatured'] ?? json['is_featured']) as bool? ?? false,
       options: (json['options'] as List?)
               ?.map((e) => FoodOptionGroupRef.fromJson(e as Map<String, dynamic>))
               .toList() ??

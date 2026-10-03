@@ -59,94 +59,10 @@ class _LoginScreenState extends State<LoginScreen> {
   /// Real forgot-password flow: email -> OTP -> new password, against
   /// POST /auth/forgot-password/start and /reset.
   void _showForgotPasswordDialog() {
-    final emailCtrl = TextEditingController();
-    final otpCtrl = TextEditingController();
-    final passwordCtrl = TextEditingController();
-    final messenger = ScaffoldMessenger.of(context);
-    int step = 0; // 0=email, 1=otp+new password
-    bool busy = false;
-    String? error;
-
-    showDialog(
+    showDialog<void>(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          title: Text(step == 0 ? 'Reset Password' : 'Check your email'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (step == 0) ...[
-                TextField(
-                  controller: emailCtrl,
-                  keyboardType: TextInputType.emailAddress,
-                  autofocus: true,
-                  decoration: const InputDecoration(
-                      labelText: 'Account email', hintText: 'you@example.com'),
-                ),
-              ] else ...[
-                TextField(
-                  controller: otpCtrl,
-                  keyboardType: TextInputType.number,
-                  autofocus: true,
-                  decoration: const InputDecoration(labelText: '6-digit code from email'),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: passwordCtrl,
-                  obscureText: true,
-                  decoration: const InputDecoration(
-                      labelText: 'New password (8+ chars, Aa1)'),
-                ),
-              ],
-              if (error != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child:
-                      Text(error!, style: const TextStyle(color: AppColors.danger, fontSize: 12)),
-                ),
-            ],
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: busy
-                  ? null
-                  : () async {
-                      setDialogState(() {
-                        busy = true;
-                        error = null;
-                      });
-                      final auth = AuthApiService(context.read<VendorProvider>().client);
-                      try {
-                        if (step == 0) {
-                          await auth.forgotPasswordStart(emailCtrl.text.trim());
-                          setDialogState(() => step = 1);
-                        } else {
-                          await auth.resetPassword(
-                            email: emailCtrl.text.trim(),
-                            otpCode: otpCtrl.text.trim(),
-                            newPassword: passwordCtrl.text,
-                          );
-                          if (!dialogContext.mounted) return;
-                          Navigator.pop(dialogContext);
-                          messenger.showSnackBar(const SnackBar(
-                              content: Text('Password reset — you can now log in')));
-                        }
-                      } on AuthException catch (e) {
-                        setDialogState(() => error = e.message);
-                      }
-                      setDialogState(() => busy = false);
-                    },
-              child: Text(busy ? 'Sending…' : (step == 0 ? 'Send Code' : 'Reset Password')),
-            ),
-          ],
-        ),
-      ),
-    ).whenComplete(() {
-      emailCtrl.dispose();
-      otpCtrl.dispose();
-      passwordCtrl.dispose();
-    });
+      builder: (_) => const _ForgotPasswordDialog(),
+    );
   }
 
   @override
@@ -243,6 +159,136 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _ForgotPasswordDialog extends StatefulWidget {
+  const _ForgotPasswordDialog();
+
+  @override
+  State<_ForgotPasswordDialog> createState() => _ForgotPasswordDialogState();
+}
+
+class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
+  late final TextEditingController _emailCtrl;
+  late final TextEditingController _otpCtrl;
+  late final TextEditingController _passwordCtrl;
+
+  int _step = 0; // 0=email, 1=otp+new password
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _emailCtrl = TextEditingController();
+    _otpCtrl = TextEditingController();
+    _passwordCtrl = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _emailCtrl.dispose();
+    _otpCtrl.dispose();
+    _passwordCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    final auth = AuthApiService(context.read<VendorProvider>().client);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      if (_step == 0) {
+        await auth.forgotPasswordStart(_emailCtrl.text.trim());
+        if (!mounted) return;
+        setState(() => _step = 1);
+      } else {
+        await auth.resetPassword(
+          email: _emailCtrl.text.trim(),
+          otpCode: _otpCtrl.text.trim(),
+          newPassword: _passwordCtrl.text,
+        );
+        if (!mounted) return;
+        Navigator.pop(context);
+        messenger.showSnackBar(
+            const SnackBar(content: Text('Password reset — you can now log in')));
+      }
+    } on AuthException catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.message);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _error = 'An unexpected error occurred');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(_step == 0 ? 'Reset Password' : 'Check your email'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_step == 0) ...[
+              TextField(
+                controller: _emailCtrl,
+                keyboardType: TextInputType.emailAddress,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: 'Account email',
+                  hintText: 'you@example.com',
+                ),
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _submit(),
+              ),
+            ] else ...[
+              TextField(
+                controller: _otpCtrl,
+                keyboardType: TextInputType.number,
+                autofocus: true,
+                decoration: const InputDecoration(labelText: '6-digit code from email'),
+                textInputAction: TextInputAction.next,
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _passwordCtrl,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'New password (8+ chars, Aa1)'),
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _submit(),
+              ),
+            ],
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  _error!,
+                  style: const TextStyle(color: AppColors.danger, fontSize: 12),
+                ),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: _busy ? null : _submit,
+          child: Text(_busy
+              ? 'Sending…'
+              : (_step == 0 ? 'Send Code' : 'Reset Password')),
+        ),
+      ],
     );
   }
 }

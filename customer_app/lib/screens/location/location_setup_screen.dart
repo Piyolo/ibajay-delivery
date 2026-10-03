@@ -312,6 +312,7 @@ class _LocationSetupScreenState extends State<LocationSetupScreen> {
                     ] else ...[
                       const SizedBox(height: 6),
                       DropdownButtonFormField<String>(
+                        key: ValueKey(_picked.barangay),
                         initialValue: LocationConstants.ibajayBarangays.contains(_picked.barangay)
                             ? _picked.barangay
                             : 'Poblacion',

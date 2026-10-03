@@ -1,40 +1,29 @@
 import { useState } from 'react'
-import { Flame, ShieldCheck, Store, UserCog } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
+import { Flame, LoaderCircle } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import type { Role } from '../types'
-import { DEMO_USERS, useAuth } from '../state/auth'
-
-const ROLES: Array<{ role: Role; icon: LucideIcon; title: string; desc: string }> = [
-  {
-    role: 'developer',
-    icon: UserCog,
-    title: 'Developer',
-    desc: 'Full system access — staff management, platform settings, audit logs.',
-  },
-  {
-    role: 'manager',
-    icon: ShieldCheck,
-    title: 'Manager',
-    desc: 'Approve and manage vendors and orders, monitor operations and analytics.',
-  },
-  {
-    role: 'staff',
-    icon: Store,
-    title: 'Staff',
-    desc: 'Monitoring only — view orders, vendors and customers without modification rights.',
-  },
-]
+import { useAuth } from '../state/auth'
 
 export function LoginPage() {
-  const [selected, setSelected] = useState<Role | null>(null)
-  const { signIn } = useAuth()
+  const [mobile, setMobile] = useState('')
+  const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const { signInWithPassword } = useAuth()
   const navigate = useNavigate()
 
-  const proceed = () => {
-    if (!selected) return
-    signIn(selected)
-    navigate('/', { replace: true })
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!mobile.trim() || !password || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await signInWithPassword(mobile.trim(), password)
+      navigate('/', { replace: true })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not sign in')
+      setBusy(false)
+    }
   }
 
   return (
@@ -50,37 +39,61 @@ export function LoginPage() {
           </div>
         </div>
 
-        <div className="card card-pad">
-          <div style={{ marginBottom: 14 }}>
-            <span className="field-label">Sign in as</span>
-            {ROLES.map((r) => (
-              <div
-                key={r.role}
-                className={`role-card ${selected === r.role ? 'selected' : ''}`}
-                onClick={() => setSelected(r.role)}
-              >
-                <div className="rc-icon">
-                  <r.icon size={17} />
-                </div>
-                <div>
-                  <h4>{r.title}</h4>
-                  <p>{r.desc}</p>
-                </div>
-              </div>
-            ))}
+        <form className="card card-pad" onSubmit={submit}>
+          <label className="field-label" htmlFor="admin-mobile">Mobile Number</label>
+          <input
+            id="admin-mobile"
+            className="input"
+            style={{ width: '100%', marginBottom: 12 }}
+            placeholder="09123456789"
+            inputMode="tel"
+            autoComplete="username"
+            value={mobile}
+            onChange={(e) => setMobile(e.target.value)}
+            autoFocus
+          />
+
+          <label className="field-label" htmlFor="admin-password">Password</label>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+            <input
+              id="admin-password"
+              className="input"
+              style={{ width: '100%' }}
+              type={showPassword ? 'text' : 'password'}
+              placeholder="••••••••"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={() => setShowPassword((v) => !v)}
+              title={showPassword ? 'Hide password' : 'Show password'}
+            >
+              {showPassword ? 'Hide' : 'Show'}
+            </button>
           </div>
-          <button
-            className="btn primary"
-            style={{ width: '100%' }}
-            disabled={!selected}
-            onClick={proceed}
-          >
-            Sign in{selected ? ` as ${DEMO_USERS[selected].name}` : ''}
+
+          {error && (
+            <p style={{ color: '#c0392b', fontSize: 13, marginTop: -6, marginBottom: 10 }}>
+              {error}
+            </p>
+          )}
+
+          <button className="btn primary" style={{ width: '100%' }} disabled={busy}>
+            {busy ? (
+              <>
+                <LoaderCircle size={15} style={{ animation: 'spin 1s linear infinite' }} /> Signing in…
+              </>
+            ) : (
+              'Sign in'
+            )}
           </button>
           <p className="login-foot" style={{ marginTop: 12 }}>
-            Stage 1 prototype — authentication is simulated, no backend connected.
+            Administrator accounts only — access is validated against the platform backend.
           </p>
-        </div>
+        </form>
       </div>
     </div>
   )

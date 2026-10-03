@@ -370,6 +370,7 @@ class _StoreSetupScreenState extends State<StoreSetupScreen> {
         ),
         const SizedBox(height: 10),
         DropdownButtonFormField<String>(
+          key: ValueKey(_picked.barangay),
           initialValue:
               kIbajayBarangays.contains(_picked.barangay) ? _picked.barangay : 'Poblacion',
           decoration: const InputDecoration(

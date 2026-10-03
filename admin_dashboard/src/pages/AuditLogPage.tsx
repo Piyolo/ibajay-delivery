@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { auditLog } from '../data/mockDb'
+import { api } from '../lib/api'
+import { useAsyncData } from '../state/live'
 import { fmtDateTime, timeAgo } from '../lib/format'
 import {
   Badge,
@@ -9,17 +10,26 @@ import {
   PageHeader,
   Pagination,
 } from '../components/ui/primitives'
-import { useLive } from '../state/live'
+
+interface ActivityRow {
+  id: string
+  at: string
+  actor: string
+  action: string
+  target: string
+  detail: string | null
+}
 
 export function AuditLogPage() {
   const [actionF, setActionF] = useState('all')
   const [page, setPage] = useState(1)
-  const { tick } = useLive()
 
-  const actionGroups = useMemo(() => {
-    void tick
-    return [...new Set(auditLog.map((a) => a.action.split('.')[0]))]
-  }, [tick])
+  const auditLog = useAsyncData(() => api<ActivityRow[]>('/admin/activity')).data ?? []
+
+  const actionGroups = useMemo(
+    () => [...new Set(auditLog.map((a) => a.action.split(' ')[0]))],
+    [auditLog],
+  )
 
   const filtered = auditLog.filter(
     (a) => actionF === 'all' || a.action.startsWith(actionF),
@@ -32,7 +42,7 @@ export function AuditLogPage() {
     <>
       <PageHeader
         title="Audit Logs"
-        description="Append-only record of administrative actions across the platform."
+        description="Recent platform activity derived from order status transitions."
       />
 
       <div className="filters-bar">
@@ -66,17 +76,16 @@ export function AuditLogPage() {
                     <div className="cell-sub">{timeAgo(a.at)}</div>
                   </td>
                   <td>
-                    <div className="cell-main small">{a.actorName}</div>
-                    <div className="cell-sub" style={{ textTransform: 'capitalize' }}>{a.actorRole}</div>
+                    <div className="cell-main small">{a.actor}</div>
                   </td>
                   <td>
-                    <Badge tone={a.action.includes('reject') || a.action.includes('suspend') ? 'red' : a.action.includes('approv') ? 'green' : 'gray'} dot={false}>
+                    <Badge tone={a.action.includes('cancel') ? 'red' : a.action.includes('deliver') || a.action.includes('complete') ? 'green' : 'gray'} dot={false}>
                       {a.action}
                     </Badge>
                   </td>
                   <td><span className="cell-main small">{a.target}</span></td>
                   <td style={{ whiteSpace: 'normal', minWidth: 240 }} className="small muted">
-                    {a.detail}
+                    {a.detail ?? '—'}
                   </td>
                 </tr>
               ))}

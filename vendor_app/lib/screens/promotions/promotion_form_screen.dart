@@ -126,6 +126,7 @@ class _PromotionFormScreenState extends State<PromotionFormScreen> {
                           const Text('Type', style: TextStyle(fontWeight: FontWeight.w600)),
                           const SizedBox(height: 6),
                           DropdownButtonFormField<String>(
+                            key: ValueKey(_discountType),
                             initialValue: _discountType,
                             items: const [
                               DropdownMenuItem(value: 'percent', child: Text('% off')),

@@ -1,29 +1,37 @@
 import { useState } from 'react'
-import { UserPlus } from 'lucide-react'
-import { staffUsers } from '../data/mockDb'
-import type { Role, StaffUser } from '../types'
+import { api } from '../lib/api'
+import { useAsyncData } from '../state/live'
 import { can, useAuth } from '../state/auth'
-import { flash } from '../lib/flash'
-import { timeAgo } from '../lib/format'
+import { fmtDate } from '../lib/format'
 import {
   Badge,
   Card,
+  EmptyState,
   PageHeader,
   SearchBox,
 } from '../components/ui/primitives'
+
+interface AdminStaffRow {
+  id: string
+  full_name: string
+  email: string
+  mobile_number: string
+  is_active: boolean
+  created_at: string
+}
 
 export function StaffPage() {
   const { user } = useAuth()
   const role = user?.role ?? 'staff'
   const canManage = can(role, 'staff.manage')
-  const [version, setVersion] = useState(0)
   const [query, setQuery] = useState('')
-  const [adding, setAdding] = useState(false)
+
+  const staffUsers = useAsyncData(() => api<AdminStaffRow[]>('/admin/staff')).data ?? []
 
   const rows = staffUsers.filter(
     (s) =>
       !query.trim() ||
-      s.name.toLowerCase().includes(query.trim().toLowerCase()) ||
+      s.full_name.toLowerCase().includes(query.trim().toLowerCase()) ||
       s.email.toLowerCase().includes(query.trim().toLowerCase()),
   )
 
@@ -31,182 +39,50 @@ export function StaffPage() {
     <>
       <PageHeader
         title="Staff Management"
-        description={
-          canManage
-            ? 'Manage console access for developers, managers and staff.'
-            : 'View-only — only developers can manage staff accounts.'
-        }
-        actions={
-          canManage && (
-            <button className="btn primary" onClick={() => setAdding(true)}>
-              <UserPlus /> Invite staff
-            </button>
-          )
-        }
+        description="Administrator accounts with console access. Read-only for now — invites and role edits land with the backend staff endpoints."
       />
 
       <div className="filters-bar">
         <SearchBox value={query} onChange={setQuery} placeholder="Search name or email…" />
       </div>
 
-      <Card key={version}>
+      <Card>
         <div className="table-wrap">
           <table className="tbl">
             <thead>
               <tr>
                 <th>Name</th>
                 <th>Email</th>
-                <th>Role</th>
+                <th>Mobile</th>
                 <th>Status</th>
-                <th>Last Activity</th>
-                {canManage && <th>Actions</th>}
+                <th>Joined</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((s) => (
-                <StaffRow key={s.id} s={s} canManage={canManage} onChange={() => setVersion((n) => n + 1)} />
+                <tr key={s.id}>
+                  <td><span className="cell-main">{s.full_name}</span></td>
+                  <td>{s.email}</td>
+                  <td>{s.mobile_number}</td>
+                  <td>
+                    <Badge tone={s.is_active ? 'green' : 'red'}>
+                      {s.is_active ? 'active' : 'disabled'}
+                    </Badge>
+                  </td>
+                  <td>{fmtDate(s.created_at)}</td>
+                </tr>
               ))}
             </tbody>
           </table>
+          {!rows.length && <EmptyState message="No admin accounts found." />}
         </div>
       </Card>
 
-      {adding && (
-        <InviteModal
-          onClose={() => setAdding(false)}
-          onInvite={(name, email, newRole) => {
-            staffUsers.unshift({
-              id: `s${staffUsers.length + 1}`,
-              name,
-              email,
-              role: newRole,
-              status: 'invited',
-              lastActiveAt: new Date(),
-            })
-            flash(`Invitation sent to ${name}`)
-            setVersion((n) => n + 1)
-            setAdding(false)
-          }}
-        />
-      )}
-    </>
-  )
-}
-
-function StaffRow({
-  s,
-  canManage,
-  onChange,
-}: {
-  s: StaffUser
-  canManage: boolean
-  onChange: () => void
-}) {
-  const tone =
-    s.status === 'active' ? 'green' : s.status === 'invited' ? 'amber' : 'red'
-
-  return (
-    <tr>
-      <td><span className="cell-main">{s.name}</span></td>
-      <td>{s.email}</td>
-      <td style={{ textTransform: 'capitalize', fontWeight: 600 }}>{s.role}</td>
-      <td><Badge tone={tone}>{s.status}</Badge></td>
-      <td>{timeAgo(s.lastActiveAt)}</td>
       {canManage && (
-        <td>
-          {s.status === 'invited' && (
-            <button
-              className="btn ghost xs"
-              onClick={() => {
-                s.status = 'active'
-                flash(`${s.name} activated`)
-                onChange()
-              }}
-            >
-              Activate
-            </button>
-          )}
-          {s.status !== 'disabled' ? (
-            <button
-              className="btn danger xs"
-              style={{ marginLeft: 5 }}
-              onClick={() => {
-                s.status = 'disabled'
-                flash(`${s.name}'s access disabled`)
-                onChange()
-              }}
-            >
-              Disable
-            </button>
-          ) : (
-            <button
-              className="btn ghost xs"
-              style={{ marginLeft: 5 }}
-              onClick={() => {
-                s.status = 'active'
-                flash(`${s.name} reinstated`)
-                onChange()
-              }}
-            >
-              Reinstate
-            </button>
-          )}
-        </td>
+        <p className="small muted" style={{ marginTop: 10 }}>
+          Inviting or disabling staff requires a backend endpoint that is not available yet.
+        </p>
       )}
-    </tr>
-  )
-}
-
-function InviteModal({
-  onClose,
-  onInvite,
-}: {
-  onClose: () => void
-  onInvite: (name: string, email: string, role: Role) => void
-}) {
-  const [name, setName] = useState('')
-  const [email, setEmail] = useState('')
-  const [role, setRole] = useState<Role>('staff')
-
-  const valid = name.trim().length > 1 && /.+@.+\..+/.test(email)
-
-  return (
-    <>
-      <div className="drawer-overlay" onClick={onClose} />
-      <aside className="drawer" style={{ width: 360 }}>
-        <div className="drawer-head">
-          <h3>Invite staff member</h3>
-          <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={onClose}>
-            ✕
-          </button>
-        </div>
-        <div className="drawer-body">
-          <div style={{ marginBottom: 12 }}>
-            <label className="field-label">Full name</label>
-            <input className="input" style={{ width: '100%' }} value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
-          <div style={{ marginBottom: 12 }}>
-            <label className="field-label">Work email</label>
-            <input className="input" style={{ width: '100%' }} value={email} onChange={(e) => setEmail(e.target.value)} />
-          </div>
-          <div style={{ marginBottom: 18 }}>
-            <label className="field-label">Role</label>
-            <select className="select" style={{ width: '100%' }} value={role} onChange={(e) => setRole(e.target.value as Role)}>
-              <option value="staff">Staff — monitoring only</option>
-              <option value="manager">Manager — operations</option>
-              <option value="developer">Developer — full access</option>
-            </select>
-          </div>
-          <button
-            className="btn primary"
-            style={{ width: '100%' }}
-            disabled={!valid}
-            onClick={() => onInvite(name.trim(), email.trim(), role)}
-          >
-            Send invitation
-          </button>
-        </div>
-      </aside>
     </>
   )
 }

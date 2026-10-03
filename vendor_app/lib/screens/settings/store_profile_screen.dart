@@ -128,6 +128,7 @@ class _StoreProfileScreenState extends State<StoreProfileScreen> {
           children: [
             // Banner
             Stack(
+              clipBehavior: Clip.none,
               children: [
                 Container(
                   height: 140,
@@ -155,7 +156,7 @@ class _StoreProfileScreenState extends State<StoreProfileScreen> {
                   ),
                 Positioned(
                   left: 16,
-                  bottom: -32,
+                  bottom: -38,
                   child: Container(
                     width: 76,
                     height: 76,
@@ -163,22 +164,24 @@ class _StoreProfileScreenState extends State<StoreProfileScreen> {
                       color: AppColors.surface,
                       shape: BoxShape.circle,
                       border: Border.all(color: AppColors.surface, width: 4),
-                      boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 6)],
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Colors.black26,
+                          blurRadius: 8,
+                          offset: Offset(0, 2),
+                        ),
+                      ],
                     ),
-                    child: vendor.logoUrl.isNotEmpty
-                        ? ClipOval(
-                            child: SizedBox(
-                              width: 68,
-                              height: 68,
-                              child: _storeImage(vendor.logoUrl, fallback: _logoFallback(vendor.storeName)),
-                            ),
-                          )
-                        : _logoFallback(vendor.storeName),
+                    child: ClipOval(
+                      child: vendor.logoUrl.isNotEmpty
+                          ? _storeImage(vendor.logoUrl, fallback: _logoFallback(vendor.storeName))
+                          : _logoFallback(vendor.storeName),
+                    ),
                   ),
                 ),
                 if (_editing)
                   Positioned(
-                    left: 68,
+                    left: 72,
                     bottom: -8,
                     child: _EditImageChip(
                       label: vendor.logoUrl.isEmpty ? 'Add Logo' : 'Change Logo',
@@ -189,7 +192,7 @@ class _StoreProfileScreenState extends State<StoreProfileScreen> {
                   ),
               ],
             ),
-            const SizedBox(height: 44),
+            const SizedBox(height: 48),
             Padding(
               padding: const EdgeInsets.all(AppSpacing.lg),
               child: Column(

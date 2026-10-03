@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 
 from pydantic import BaseModel
 
@@ -53,6 +54,21 @@ class FoodItemOut(BaseModel):
         from_attributes = True
 
 
+class PromotionOut(BaseModel):
+    id: uuid.UUID
+    title: str
+    description: str | None = None
+    discount_type: str
+    discount_value: float
+    code: str | None = None
+    min_subtotal: float = 0
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+
+    class Config:
+        from_attributes = True
+
+
 class VendorProfileOut(BaseModel):
     id: uuid.UUID
     store_name: str
@@ -76,6 +92,7 @@ class VendorProfileOut(BaseModel):
     delivery_barangays: list[str] = []
     categories: list[str] = []
     food_items: list[FoodItemOut] = []
+    promotions: list[PromotionOut] = []
 
     class Config:
         from_attributes = True

@@ -24,7 +24,9 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
-    _chat.connect(widget.threadId);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _chat.connect(widget.threadId);
+    });
   }
 
   @override

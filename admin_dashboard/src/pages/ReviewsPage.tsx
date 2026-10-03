@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
-import { EyeOff, Info, RotateCcw } from 'lucide-react'
-import { getVendor, reviews as allReviews } from '../data/mockDb'
+import { Info } from 'lucide-react'
+import { api } from '../lib/api'
+import { useAsyncData } from '../state/live'
 import { can, useAuth } from '../state/auth'
-import { flash } from '../lib/flash'
 import { fmtDate } from '../lib/format'
 import {
   Badge,
@@ -15,30 +15,39 @@ import {
   Stars,
 } from '../components/ui/primitives'
 
+interface AdminReviewRow {
+  id: string
+  vendor_id: string
+  vendor_name: string | null
+  customer_name: string | null
+  stars: number
+  comment: string | null
+  vendor_response: string | null
+  vendor_responded: boolean
+  created_at: string
+}
+
 export function ReviewsPage() {
   const { user } = useAuth()
-  // Staff may hide flagged reviews only; managers/developers moderate freely.
   const fullModerator = can(user?.role ?? 'staff', 'reviews.moderate')
   const [query, setQuery] = useState('')
   const [ratingF, setRatingF] = useState('all')
-  const [flaggedOnly, setFlaggedOnly] = useState(false)
   const [page, setPage] = useState(1)
-  const [version, setVersion] = useState(0)
+
+  const allReviews = useAsyncData(() => api<AdminReviewRow[]>('/admin/reviews')).data ?? []
 
   const filtered = useMemo(() => {
-    void version
     const q = query.trim().toLowerCase()
     return allReviews.filter((r) => {
-      if (flaggedOnly && !r.flagged) return false
-      if (ratingF !== 'all' && r.rating !== Number(ratingF)) return false
+      if (ratingF !== 'all' && r.stars !== Number(ratingF)) return false
       if (!q) return true
       return (
-        (getVendor(r.vendorId)?.storeName.toLowerCase().includes(q) ?? false) ||
-        r.customerName.toLowerCase().includes(q) ||
-        r.comment.toLowerCase().includes(q)
+        (r.vendor_name?.toLowerCase().includes(q) ?? false) ||
+        (r.customer_name?.toLowerCase().includes(q) ?? false) ||
+        (r.comment?.toLowerCase().includes(q) ?? false)
       )
     })
-  }, [query, ratingF, flaggedOnly, version])
+  }, [allReviews, query, ratingF])
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const safePage = Math.min(page, pageCount)
@@ -50,8 +59,8 @@ export function ReviewsPage() {
         title="Reviews"
         description={
           fullModerator
-            ? 'Moderate customer reviews. Flagged entries surface spam and abuse.'
-            : 'Monitoring view — flagged reviews can be hidden; other moderation is restricted.'
+            ? 'Customer reviews across the platform, newest first.'
+            : 'Monitoring view of customer reviews.'
         }
       />
 
@@ -63,10 +72,6 @@ export function ReviewsPage() {
             <option key={r} value={r}>{r} stars</option>
           ))}
         </select>
-        <label className="row-flex small" style={{ gap: 6, cursor: 'pointer' }}>
-          <input type="checkbox" checked={flaggedOnly} onChange={(e) => setFlaggedOnly(e.target.checked)} />
-          Flagged only
-        </label>
         <div className="spacer" />
         <span className="small muted">{filtered.length} reviews</span>
       </div>
@@ -82,61 +87,25 @@ export function ReviewsPage() {
                 <th>Comment</th>
                 <th>Posted</th>
                 <th>State</th>
-                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => {
-                const vendor = getVendor(r.vendorId)
-                const staffBlocked = !fullModerator && !r.flagged
-                return (
-                  <tr key={r.id}>
-                    <td><span className="cell-main">{vendor?.storeName ?? r.vendorId}</span></td>
-                    <td>{r.customerName}</td>
-                    <td><Stars rating={r.rating} /></td>
-                    <td style={{ whiteSpace: 'normal', minWidth: 220 }}>
-                      {r.hidden ? <s className="muted">{r.comment}</s> : r.comment}
-                    </td>
-                    <td title={fmtDate(r.createdAt)}>{fmtDate(r.createdAt)}</td>
-                    <td>
-                      <div className="row-flex" style={{ gap: 5, flexWrap: 'wrap' }}>
-                        {r.flagged && <Badge tone="red">Flagged</Badge>}
-                        {r.responded && <Badge tone="blue" dot={false}>Responded</Badge>}
-                        {r.hidden && <Badge tone="gray">Hidden</Badge>}
-                      </div>
-                    </td>
-                    <td>
-                      {r.hidden ? (
-                        <button
-                          className="btn ghost xs"
-                          disabled={staffBlocked}
-                          title={staffBlocked ? 'Restricted for staff — flagged reviews only' : ''}
-                          onClick={() => {
-                            r.hidden = false
-                            flash('Review restored')
-                            setVersion((n) => n + 1)
-                          }}
-                        >
-                          <RotateCcw /> Restore
-                        </button>
-                      ) : (
-                        <button
-                          className="btn danger xs"
-                          disabled={staffBlocked}
-                          title={staffBlocked ? 'Restricted for staff — flagged reviews only' : ''}
-                          onClick={() => {
-                            r.hidden = true
-                            flash('Review hidden from the store page')
-                            setVersion((n) => n + 1)
-                          }}
-                        >
-                          <EyeOff /> Hide
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                )
-              })}
+              {rows.map((r) => (
+                <tr key={r.id}>
+                  <td><span className="cell-main">{r.vendor_name ?? '—'}</span></td>
+                  <td>{r.customer_name ?? '—'}</td>
+                  <td><Stars rating={r.stars} /></td>
+                  <td style={{ whiteSpace: 'normal', minWidth: 220 }}>{r.comment ?? ''}</td>
+                  <td title={fmtDate(r.created_at)}>{fmtDate(r.created_at)}</td>
+                  <td>
+                    <div className="row-flex" style={{ gap: 5, flexWrap: 'wrap' }}>
+                      {r.vendor_responded
+                        ? <Badge tone="blue" dot={false}>Responded</Badge>
+                        : <Badge tone="gray" dot={false}>Awaiting reply</Badge>}
+                    </div>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
           {!rows.length && <EmptyState message="No reviews match the filters." />}
@@ -145,7 +114,8 @@ export function ReviewsPage() {
       </Card>
 
       <p className="small muted" style={{ marginTop: 10 }}>
-        <Info size={12} style={{ verticalAlign: -2 }} /> Auto-flagging catches spam patterns; vendor responses come through the vendor app.
+        <Info size={12} style={{ verticalAlign: -2 }} /> Vendor responses come through the vendor app.
+        Moderation actions (hide/flag) are not persisted by the backend yet, so this view is read-only.
       </p>
     </>
   )

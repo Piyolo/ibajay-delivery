@@ -20,7 +20,7 @@ const GROUPS = [
 
 export default function TechStack() {
   return (
-    <section id="tech" className="relative z-10 py-28">
+    <section id="tech" className="relative z-10 py-16 sm:py-28">
       <div className="mx-auto max-w-6xl px-6">
         <motion.div
           initial={{ opacity: 0, y: 30 }}

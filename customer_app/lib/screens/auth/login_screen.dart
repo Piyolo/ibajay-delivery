@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/favorites_provider.dart';
 import '../../providers/location_provider.dart';
 import '../../theme/app_theme.dart';
 import '../location/location_setup_screen.dart';
@@ -46,6 +47,16 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!ok) {
       setState(() => _error = auth.lastAuthError ?? 'Invalid mobile number or password');
       return;
+    }
+    // Bind per-user data (addresses, favorites) to the fresh account and
+    // pull from the server BEFORE deciding where to route — otherwise a
+    // returning user is dumped back into Location Setup on every login.
+    final uid = auth.currentUser?.id ?? '';
+    if (uid.isNotEmpty) {
+      await context.read<LocationProvider>().attachUser(uid);
+      if (!mounted) return;
+      await context.read<FavoritesProvider>().attachUser(uid);
+      if (!mounted) return;
     }
     // Route on the signed-in user's own address state, not a global flag.
     final hasLocation =

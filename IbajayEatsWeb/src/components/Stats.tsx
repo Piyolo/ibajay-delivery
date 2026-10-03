@@ -40,7 +40,7 @@ function Counter({ stat }: { stat: Stat }) {
 
 export default function Stats() {
   return (
-    <section className="relative z-10 py-24">
+    <section className="relative z-10 py-14 sm:py-24">
       <div className="mx-auto max-w-6xl px-6">
         <motion.div
           initial={{ opacity: 0, y: 30 }}

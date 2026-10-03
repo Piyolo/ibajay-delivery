@@ -325,6 +325,11 @@ class AuthProvider extends ChangeNotifier {
       email: me['email'] as String? ?? '',
     );
     status = AuthStatus.signedIn;
+    // Load THIS account's saved-location flag before anyone routes on it.
+    if (currentUser?.id.isNotEmpty == true) {
+      _hasSavedLocation = await PreferencesService.getBool(
+          PreferencesService.kHasSavedLocationFor(currentUser!.id));
+    }
     await _persistSession();
     notifyListeners();
   }

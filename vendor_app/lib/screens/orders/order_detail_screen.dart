@@ -60,8 +60,11 @@ class OrderDetailScreen extends StatelessWidget {
     }
 
     final flow = _flowFor(order.fulfillmentType);
-    final currentIndex =
-        order.status == OrderStatus.cancelled ? -1 : flow.indexOf(order.status);
+    final currentIndex = order.status == OrderStatus.cancelled
+        ? -1
+        : (order.status == OrderStatus.completed
+            ? flow.length - 1
+            : flow.indexOf(order.status));
 
     return Scaffold(
       appBar: AppBar(

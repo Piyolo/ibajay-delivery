@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
 import { Check, Palette } from 'lucide-react'
 import { THEMES, useTheme } from '../../state/theme'
 import type { ThemeId } from '../../state/theme'
@@ -61,7 +62,7 @@ export function ThemePicker() {
                   {
                     '--tp-bg': t.swatch.bg,
                     '--tp-surface': t.swatch.surface,
-                  } as React.CSSProperties
+                  } as CSSProperties
                 }
               />
               <span className="tp-meta">

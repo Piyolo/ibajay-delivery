@@ -88,6 +88,7 @@ export function RevenueAreaChart({
   data: Array<{ label: string; revenue: number }>
   height?: number
 }) {
+  const { axis, grid } = useChartColors()
   return (
     <ResponsiveContainer width="100%" height={height}>
       <AreaChart data={data} margin={{ top: 8, right: 12, left: -6, bottom: 0 }}>
@@ -97,10 +98,10 @@ export function RevenueAreaChart({
             <stop offset="100%" stopColor="#e85d2a" stopOpacity={0.01} />
           </linearGradient>
         </defs>
-        <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
-        <XAxis dataKey="label" tick={axisStyle} tickLine={false} axisLine={{ stroke: gridStroke }} />
+        <CartesianGrid strokeDasharray="3 3" stroke={grid} vertical={false} />
+        <XAxis dataKey="label" tick={{ fontSize: 11, fill: axis }} tickLine={false} axisLine={{ stroke: grid }} />
         <YAxis
-          tick={axisStyle}
+          tick={{ fontSize: 11, fill: axis }}
           tickLine={false}
           axisLine={false}
           width={54}
@@ -127,12 +128,13 @@ export function OrdersBarChart({
   data: Array<{ label: string; orders: number }>
   height?: number
 }) {
+  const { axis, grid } = useChartColors()
   return (
     <ResponsiveContainer width="100%" height={height}>
       <BarChart data={data} margin={{ top: 8, right: 12, left: -14, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
-        <XAxis dataKey="label" tick={axisStyle} tickLine={false} axisLine={{ stroke: gridStroke }} />
-        <YAxis tick={axisStyle} tickLine={false} axisLine={false} width={40} allowDecimals={false} />
+        <CartesianGrid strokeDasharray="3 3" stroke={grid} vertical={false} />
+        <XAxis dataKey="label" tick={{ fontSize: 11, fill: axis }} tickLine={false} axisLine={{ stroke: grid }} />
+        <YAxis tick={{ fontSize: 11, fill: axis }} tickLine={false} axisLine={false} width={40} allowDecimals={false} />
         <Tooltip content={<TooltipBox />} cursor={{ fill: 'rgba(232,93,42,0.06)' }} />
         <Bar dataKey="orders" name="Orders" fill="#1f6f5c" radius={[3, 3, 0, 0]} maxBarSize={22} />
       </BarChart>
@@ -151,6 +153,7 @@ export function GrowthLineChart({
   dataKey?: string
   height?: number
 }) {
+  const { axis, grid } = useChartColors()
   return (
     <ResponsiveContainer width="100%" height={height}>
       <AreaChart data={data} margin={{ top: 8, right: 12, left: -14, bottom: 0 }}>
@@ -160,9 +163,9 @@ export function GrowthLineChart({
             <stop offset="100%" stopColor={color} stopOpacity={0.01} />
           </linearGradient>
         </defs>
-        <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
-        <XAxis dataKey="label" tick={axisStyle} tickLine={false} axisLine={{ stroke: gridStroke }} />
-        <YAxis tick={axisStyle} tickLine={false} axisLine={false} width={40} allowDecimals={false} />
+        <CartesianGrid strokeDasharray="3 3" stroke={grid} vertical={false} />
+        <XAxis dataKey="label" tick={{ fontSize: 11, fill: axis }} tickLine={false} axisLine={{ stroke: grid }} />
+        <YAxis tick={{ fontSize: 11, fill: axis }} tickLine={false} axisLine={false} width={40} allowDecimals={false} />
         <Tooltip content={<TooltipBox />} />
         <Area
           type="monotone"

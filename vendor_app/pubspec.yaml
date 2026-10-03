@@ -1,7 +1,7 @@
 name: ibajay_eats_vendor
 description: Vendor app for Ibajay Eats — manage your store, menu, orders and deliveries.
 publish_to: 'none'
-version: 0.1.0+1
+version: 0.2.0+2
 
 environment:
   sdk: '>=3.3.0 <4.0.0'

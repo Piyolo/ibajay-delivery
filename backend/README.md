@@ -152,9 +152,20 @@ every endpoint.
 ### Using Alembic instead (recommended for anything beyond local testing)
 
 ```bash
-alembic revision --autogenerate -m "init schema"
 alembic upgrade head
 ```
+
+Revisions live in `alembic/versions/` and are applied to the Neon database
+with:
+
+```bash
+alembic revision -m "describe change"   # then edit the file
+alembic upgrade head
+```
+
+Current head: `002_add_barangay_addresses`. The production DB was patched
+manually before Alembic was adopted; from here on, **only** ship schema
+changes as idempotent revisions and never hand-edit the database.
 
 ## Deploying (per spec)
 

@@ -4,6 +4,7 @@ import { useLocation } from 'react-router-dom'
 import { roleLabel, useAuth } from '../../state/auth'
 import { useLive } from '../../state/live'
 import { timeAgo } from '../../lib/format'
+import { ThemePicker } from './ThemePicker'
 
 const TITLES: Array<[string, string]> = [
   ['/analytics/sales', 'Analytics / Sales'],
@@ -49,6 +50,7 @@ export function Topbar() {
         <RefreshCw key={tick} size={13} className="spin-once" style={{ animation: 'spin 700ms ease' }} />
         Updated {timeAgo(lastUpdatedAt)}
       </div>
+      <ThemePicker />
       <div className="tb-user">
         <div className="avatar dark">{userInitials(user?.name ?? '')}</div>
         <div className="meta">

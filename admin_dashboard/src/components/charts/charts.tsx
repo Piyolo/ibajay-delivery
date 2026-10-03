@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import {
   Area,
   AreaChart,
@@ -13,11 +14,25 @@ import {
   YAxis,
 } from 'recharts'
 import { money, num } from '../../lib/format'
+import { useTheme } from '../../state/theme'
 
 export const SERIES_COLORS = ['#e85d2a', '#1f6f5c', '#3378c9', '#8a5cf6']
 
-const axisStyle = { fontSize: 11, fill: '#716a63' }
-const gridStroke = '#e7e1db'
+/** Reads the live CSS theme tokens so charts match the active dashboard theme. */
+function useChartColors() {
+  const { theme } = useTheme()
+  return useMemo(() => {
+    const s = getComputedStyle(document.documentElement)
+    const get = (name: string, fallback: string) =>
+      s.getPropertyValue(name).trim() || fallback
+    return {
+      axis: get('--c-text-2', '#716a63'),
+      grid: get('--c-border', '#e7e1db'),
+      surface: get('--c-surface', '#ffffff'),
+      text: get('--c-text', '#1d1a17'),
+    }
+  }, [theme])
+}
 
 function TooltipBox({
   active,
@@ -28,15 +43,17 @@ function TooltipBox({
   payload?: Array<{ name?: string; value?: number | string; color?: string }>
   label?: string | number
 }) {
+  const { surface, grid, text } = useChartColors()
   if (!active || !payload?.length) return null
   return (
     <div
       style={{
-        background: '#fff',
-        border: '1px solid #e7e1db',
+        background: surface,
+        border: `1px solid ${grid}`,
         borderRadius: 6,
         padding: '8px 12px',
         fontSize: 12,
+        color: text,
         boxShadow: '0 2px 10px rgba(29,26,23,0.08)',
       }}
     >

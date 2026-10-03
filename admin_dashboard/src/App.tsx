@@ -6,6 +6,7 @@ import type { AdminUser } from './state/auth'
 import type { Role } from './types'
 import { clearToken } from './lib/api'
 import { LiveProvider } from './state/live'
+import { ThemeProvider } from './state/theme'
 import { AdminLayout } from './components/layout/AdminLayout'
 import { LoginPage } from './pages/LoginPage'
 import { DashboardHomePage } from './pages/DashboardHomePage'
@@ -64,30 +65,32 @@ export default function App() {
   }
 
   return (
-    <AuthContext.Provider value={auth}>
-      <LiveProvider>
-        <HashRouter>
-          <Routes>
-            <Route
-              path="/login"
-              element={user ? <Navigate to="/" replace /> : <LoginPage />}
-            />
-            <Route
-              path="*"
-              element={
-                user ? (
-                  <AdminLayout>
-                    <GuardedRoutes role={user.role} />
-                  </AdminLayout>
-                ) : (
-                  <Navigate to="/login" replace />
-                )
-              }
-            />
-          </Routes>
-        </HashRouter>
-      </LiveProvider>
-    </AuthContext.Provider>
+    <ThemeProvider>
+      <AuthContext.Provider value={auth}>
+        <LiveProvider>
+          <HashRouter>
+            <Routes>
+              <Route
+                path="/login"
+                element={user ? <Navigate to="/" replace /> : <LoginPage />}
+              />
+              <Route
+                path="*"
+                element={
+                  user ? (
+                    <AdminLayout>
+                      <GuardedRoutes role={user.role} />
+                    </AdminLayout>
+                  ) : (
+                    <Navigate to="/login" replace />
+                  )
+                }
+              />
+            </Routes>
+          </HashRouter>
+        </LiveProvider>
+      </AuthContext.Provider>
+    </ThemeProvider>
   )
 }
 

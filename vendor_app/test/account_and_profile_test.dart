@@ -41,7 +41,7 @@ class FakeVendorProvider extends ChangeNotifier implements VendorProvider {
   }) async => true;
 
   @override
-  void signOut() {}
+  Future<void> signOut() async {}
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);

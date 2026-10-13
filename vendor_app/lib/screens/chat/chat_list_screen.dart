@@ -77,7 +77,11 @@ class _ChatListScreenState extends State<ChatListScreen> {
                       final thread = threads[i];
                       final last = thread.messages.isNotEmpty ? thread.messages.last : null;
                       final unread = last != null && !last.isRead && !last.fromMe(chat.myUserId);
-                      final preview = last?.content ?? 'No messages yet';
+                      // Live messages win; otherwise fall back to the
+                      // thread-list summary so previews never read "No
+                      // messages yet" for a thread that has history.
+                      final preview = thread.previewText ?? 'No messages yet';
+                      final previewTime = thread.previewTime;
                       return ListTile(
                         contentPadding:
                             const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -107,8 +111,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
                           mainAxisAlignment: MainAxisAlignment.center,
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            if (last != null)
-                              Text(_timeAgo(last.createdAt),
+                            if (previewTime != null)
+                              Text(_timeAgo(previewTime),
                                   style: const TextStyle(
                                       fontSize: 12, color: AppColors.textSecondary)),
                             if (unread) ...[

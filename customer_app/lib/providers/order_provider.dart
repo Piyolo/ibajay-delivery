@@ -6,6 +6,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../models/cart.dart';
 import '../models/order.dart';
+import '../models/review.dart';
 import '../models/vendor.dart';
 import '../services/api_client.dart';
 import 'vendor_provider.dart';
@@ -31,6 +32,12 @@ class OrderProvider extends ChangeNotifier {
   /// the last operation succeeded.
   String? lastError;
 
+  /// Invoked whenever one or more orders change STATUS (load, refresh,
+  /// cancel, or a WebSocket status push). Used by main.dart to refresh
+  /// the in-app notification feed — the backend writes a notification
+  /// row on every status transition.
+  void Function()? onOrdersChanged;
+
   // Live tracking socket for the order currently on screen.
   String? _watchedOrderId;
   WebSocketChannel? _watchChannel;
@@ -46,6 +53,11 @@ class OrderProvider extends ChangeNotifier {
   List<CustomerOrder> get activeOrders => orders.where((o) => o.isActive).toList();
   List<CustomerOrder> get pastOrders => orders.where((o) => !o.isActive).toList();
   bool get isLoading => _isLoading;
+
+  /// Order currently subscribed to on the tracking WebSocket (null when
+  /// not watching) — lets the tracking screen start/retry the live
+  /// connection as soon as the status becomes out_for_delivery.
+  String? get watchedOrderId => _watchedOrderId;
 
   CustomerOrder? byId(String id) {
     try {
@@ -102,6 +114,9 @@ class OrderProvider extends ChangeNotifier {
     final order = _orderFromApi(data as Map<String, dynamic>);
     _orders.add(order);
     notifyListeners();
+    // A brand-new order is a state change worth reflecting in the
+    // notification feed ("order placed").
+    onOrdersChanged?.call();
     return order;
   }
 
@@ -130,6 +145,7 @@ class OrderProvider extends ChangeNotifier {
   Future<void> loadOrders() async {
     if (_isLoading || _client.authToken == null) return;
     _isLoading = true;
+    final signatureBefore = _statusSignature();
     notifyListeners();
     try {
       final data = await _client.get('/orders/my-orders') as List;
@@ -137,6 +153,7 @@ class OrderProvider extends ChangeNotifier {
         ..clear()
         ..addAll(data.map((e) => _orderFromApi(e as Map<String, dynamic>)));
       lastError = null;
+      if (_statusSignature() != signatureBefore) onOrdersChanged?.call();
     } on ApiException catch (e) {
       lastError = e.message;
     } finally {
@@ -145,6 +162,11 @@ class OrderProvider extends ChangeNotifier {
     }
   }
 
+  /// Compact "id:status" signature used to detect transitions between
+  /// two loads — only real changes trigger a notification refresh.
+  String _statusSignature() =>
+      _orders.map((o) => '${o.id}:${o.status.key}').join(',');
+
   /// Fetches a single order from the API (used when opening the tracking
   /// screen for an order not yet in memory, e.g. right after login).
   Future<CustomerOrder?> refreshOrder(String id) async {
@@ -152,12 +174,14 @@ class OrderProvider extends ChangeNotifier {
       final data = await _client.get('/orders/$id') as Map<String, dynamic>;
       final fresh = _orderFromApi(data);
       final index = _orders.indexWhere((o) => o.id == id);
+      final previousStatus = index >= 0 ? _orders[index].status : null;
       if (index >= 0) {
         _orders[index] = fresh;
       } else {
         _orders.add(fresh);
       }
       notifyListeners();
+      if (previousStatus != fresh.status) onOrdersChanged?.call();
       return fresh;
     } on ApiException {
       return byId(id);
@@ -175,6 +199,7 @@ class OrderProvider extends ChangeNotifier {
       order.status = OrderStatus.cancelled;
       order.cancellationReason = reason;
       notifyListeners();
+      onOrdersChanged?.call();
     }
   }
 
@@ -191,17 +216,34 @@ class OrderProvider extends ChangeNotifier {
     }
   }
 
-  /// Submits the post-delivery rating. Only allowed by the backend once the
-  /// order is delivered/completed, one review per order.
-  Future<void> submitReview(
+  /// The customer's review for [orderId], or null when the order has
+  /// none yet (`GET /orders/{id}/review` returns 404 in that case).
+  Future<OrderReview?> getReview(String orderId) async {
+    try {
+      final data =
+          await _client.get('/orders/$orderId/review') as Map<String, dynamic>;
+      return OrderReview.fromApi(data);
+    } on ApiException catch (e) {
+      if (e.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
+  /// Submits the post-delivery rating (`POST /orders/{order_id}/review`,
+  /// body `{stars: 1-5, comment?}`). Only allowed by the backend once the
+  /// order is delivered/completed, one review per order — a duplicate
+  /// surfaces as [ApiException] with `statusCode` 409 so the UI can show
+  /// the existing review instead. Returns the stored review.
+  Future<OrderReview> submitReview(
     String orderId, {
     required int stars,
     String? comment,
   }) async {
-    await _client.post('/orders/$orderId/review', body: {
+    final data = await _client.post('/orders/$orderId/review', body: {
       'stars': stars,
       if (comment != null && comment.trim().isNotEmpty) 'comment': comment.trim(),
-    });
+    }) as Map<String, dynamic>;
+    return OrderReview.fromApi(data);
   }
 
   // ---- Live tracking ----
@@ -275,6 +317,8 @@ class OrderProvider extends ChangeNotifier {
             stopWatching();
           }
           notifyListeners();
+          // A live status push is exactly when a notification row lands.
+          onOrdersChanged?.call();
         }
       case 'gps_update':
         trackingError = null;

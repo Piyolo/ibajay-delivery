@@ -45,5 +45,6 @@ class NotificationType(str, enum.Enum):
     order_preparing = "order_preparing"
     out_for_delivery = "out_for_delivery"
     delivered = "delivered"
+    order_cancelled = "order_cancelled"
     chat_message = "chat_message"
     promotion = "promotion"

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../models/vendor.dart';
 import '../../providers/menu_provider.dart';
 import '../../providers/order_provider.dart';
 import '../../providers/vendor_provider.dart';
@@ -38,12 +37,11 @@ class DashboardScreen extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: Center(
-              child: InkWell(
-                borderRadius: BorderRadius.circular(AppRadius.pill),
+              child: StoreStatusPill(
+                status: vendor.status,
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const StoreStatusScreen()),
                 ),
-                child: _StoreStatusPill(status: vendor.status),
               ),
             ),
           ),
@@ -218,44 +216,6 @@ class _StatCard extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _StoreStatusPill extends StatelessWidget {
-  final StoreStatus status;
-  const _StoreStatusPill({required this.status});
-
-  Color get _color {
-    switch (status) {
-      case StoreStatus.open:
-        return AppColors.success;
-      case StoreStatus.busy:
-        return AppColors.warning;
-      case StoreStatus.paused:
-        return AppColors.info;
-      case StoreStatus.closed:
-        return AppColors.danger;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-      decoration: BoxDecoration(
-        color: _color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(AppRadius.pill),
-        border: Border.all(color: _color),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(width: 7, height: 7, decoration: BoxDecoration(color: _color, shape: BoxShape.circle)),
-          const SizedBox(width: 6),
-          Text(status.label, style: TextStyle(color: _color, fontWeight: FontWeight.w700, fontSize: 12)),
-        ],
       ),
     );
   }

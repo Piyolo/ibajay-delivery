@@ -4,6 +4,7 @@ import '../../constants/location_constants.dart';
 import '../../models/user.dart';
 import '../../providers/location_provider.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/barangay_dropdown.dart';
 import '../../widgets/common.dart';
 import '../../widgets/osm_location_picker.dart';
 
@@ -105,8 +106,30 @@ class AddressesScreen extends StatelessWidget {
                   decoration: const InputDecoration(labelText: 'Label (e.g. Home, Work)'),
                 ),
                 const SizedBox(height: 12),
+                // Same barangay picker as the setup flow — an address
+                // without a barangay can't be matched against a store's
+                // delivery areas at checkout.
+                BarangayDropdown(
+                  value: picked.barangay,
+                  onChanged: (b) {
+                    final coords = LocationConstants.coordinatesForBarangay(b);
+                    setSheetState(() {
+                      picked = PickedLocation(
+                        lat: coords?.lat ?? picked.lat,
+                        lng: coords?.lng ?? picked.lng,
+                        address: 'Brgy. $b, Ibajay, Aklan',
+                        barangay: b,
+                        outsideIbajay: false,
+                      );
+                    });
+                  },
+                ),
+                const SizedBox(height: 12),
                 OsmLocationPicker(
                   height: 240,
+                  // Follows external changes (barangay dropdown) so the
+                  // pin and the saved coordinates stay in sync.
+                  target: picked,
                   onChanged: (p) => setSheetState(() => picked = p),
                 ),
                 if (picked.outsideIbajay)

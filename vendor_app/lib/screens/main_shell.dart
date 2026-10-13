@@ -39,7 +39,11 @@ class _MainShellState extends State<MainShell> {
       _refreshTimer = Timer.periodic(const Duration(seconds: 25), (_) {
         if (!mounted) return;
         context.read<OrderProvider>().load();
-        if (_index == 3) context.read<ChatProvider>().loadThreads();
+        // Refresh thread previews only while the chat LIST tab is visible —
+        // never while a chat screen is open on top (that conversation owns
+        // its in-memory state until the user leaves it).
+        final chat = context.read<ChatProvider>();
+        if (_index == 3 && !chat.hasOpenChat) chat.loadThreads();
       });
     });
   }

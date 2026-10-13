@@ -73,6 +73,13 @@ class ApiClient {
     return _handle(response, path);
   }
 
+  Future<dynamic> put(String path, {Object? body, Map<String, String>? query}) async {
+    final response = await _send(
+      _client.put(_uri(path, query), headers: _headers(), body: jsonEncode(body ?? {})),
+    );
+    return _handle(response, path);
+  }
+
   Future<dynamic> patch(String path, {Object? body, Map<String, String>? query}) async {
     final response = await _send(
       _client.patch(_uri(path, query), headers: _headers(), body: jsonEncode(body ?? {})),

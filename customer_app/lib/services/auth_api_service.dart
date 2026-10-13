@@ -105,6 +105,19 @@ class AuthApiService {
     }
   }
 
+  /// Persists a display-name change (`PUT /auth/profile`) and returns the
+  /// updated profile in the same shape as [me], so callers hydrate from
+  /// the response instead of assuming the write stuck.
+  Future<Map<String, dynamic>> updateFullName(String fullName) async {
+    try {
+      return await _client.put('/auth/profile', body: {
+        'full_name': fullName,
+      }) as Map<String, dynamic>;
+    } on ApiException catch (e) {
+      throw AuthException(e.message, statusCode: e.statusCode);
+    }
+  }
+
   // ---- Forgot password ----
 
   Future<void> forgotPasswordStart(String email) async {

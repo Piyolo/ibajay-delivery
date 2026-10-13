@@ -1,7 +1,7 @@
 name: ibajay_eats
 description: Ibajay Eats — order from local stores near you.
 publish_to: 'none'
-version: 0.2.0+3
+version: 0.2.0+4
 
 environment:
   sdk: '>=3.3.0 <4.0.0'

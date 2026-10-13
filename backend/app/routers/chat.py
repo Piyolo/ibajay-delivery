@@ -56,6 +56,9 @@ class ChatThreadOut(BaseModel):
     last_message_at: datetime
     last_sender_id: uuid.UUID | None
     message_count: int
+    # Customer's mobile so the vendor's "Call customer" action works even
+    # when the thread has no linked order.
+    customer_mobile: str | None = None
 
 
 @router.post("", response_model=ChatOut, status_code=status.HTTP_201_CREATED)
@@ -163,6 +166,7 @@ async def _thread_payloads(db: AsyncSession, chats: list[Chat], *, customer_view
                 vendor_logo_url=vendor.logo_url if vendor else None,
                 customer_id=c.customer_id,
                 customer_name=customer.full_name if customer else "Customer",
+                customer_mobile=customer.mobile_number if customer else None,
                 order_id=c.order_id,
                 last_message=last.content if last else None,
                 last_message_at=last.created_at if last else c.created_at,

@@ -8,6 +8,7 @@ import '../../constants/location_constants.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/location_provider.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/barangay_dropdown.dart';
 import '../../widgets/osm_location_picker.dart';
 import '../main_shell.dart';
 
@@ -311,23 +312,9 @@ class _LocationSetupScreenState extends State<LocationSetupScreen> {
                       ),
                     ] else ...[
                       const SizedBox(height: 6),
-                      DropdownButtonFormField<String>(
-                        key: ValueKey(_picked.barangay),
-                        initialValue: LocationConstants.ibajayBarangays.contains(_picked.barangay)
-                            ? _picked.barangay
-                            : 'Poblacion',
-                        decoration: const InputDecoration(
-                          prefixIcon: Icon(Icons.location_city_outlined),
-                          labelText: 'Barangay',
-                          isDense: true,
-                        ),
-                        items: LocationConstants.ibajayBarangays
-                            .map((b) => DropdownMenuItem(value: b, child: Text(b)))
-                            .toList(),
-                        onChanged: (v) {
-                          if (v == null || v == _picked.barangay) return;
-                          _applyBarangay(v);
-                        },
+                      BarangayDropdown(
+                        value: _picked.barangay,
+                        onChanged: _applyBarangay,
                       ),
                     ],
                     const SizedBox(height: 14),

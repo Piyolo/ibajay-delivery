@@ -40,16 +40,81 @@ class VendorChatMessage {
 
 class VendorChatThread {
   final String id;
-  final String customerName;
-  final String? orderId;
+  String customerName;
+  final String? customerId;
+  String? orderId;
+
+  /// Customer's mobile from the thread payload — powers "Call customer"
+  /// even when the thread has no linked order.
+  String? customerMobile;
   final List<VendorChatMessage> messages;
+
+  // Summary fields from GET /chats/vendor — the thread-list payload does NOT
+  // include full messages (history loads when a thread opens), so the chat
+  // list previews live off these until messages are loaded.
+  String? lastMessageText;
+  DateTime? lastMessageAt;
+  String? lastSenderId;
+  int messageCount;
 
   VendorChatThread({
     required this.id,
     required this.customerName,
+    this.customerId,
     this.orderId,
+    this.customerMobile,
     List<VendorChatMessage>? messages,
+    this.lastMessageText,
+    this.lastMessageAt,
+    this.lastSenderId,
+    this.messageCount = 0,
   }) : messages = messages ?? [];
+
+  /// Latest activity for previews: live messages win over the summary.
+  VendorChatMessage? get lastMessage => messages.isEmpty ? null : messages.last;
+
+  String? get previewText {
+    final live = lastMessage?.content;
+    if (live != null && live.trim().isNotEmpty) return live;
+    final summary = lastMessageText;
+    return (summary != null && summary.trim().isNotEmpty) ? summary : null;
+  }
+
+  DateTime? get previewTime => lastMessage?.createdAt ?? lastMessageAt;
+
+  /// Copies server summary fields onto an already-known thread WITHOUT ever
+  /// touching its in-memory [messages] — a background refetch must never
+  /// destroy an open chat's history.
+  void adoptSummary(VendorChatThread summary) {
+    if (summary.customerName.isNotEmpty) customerName = summary.customerName;
+    if (summary.customerMobile?.isNotEmpty ?? false) {
+      customerMobile = summary.customerMobile;
+    }
+    // The backend only ever links a thread to its FIRST order, so a null
+    // order_id on the server must not wipe a locally-known link.
+    if (summary.orderId != null) orderId = summary.orderId;
+    // Preserve the existing preview when the server returns no/empty
+    // last_message instead of blanking it.
+    final text = summary.lastMessageText;
+    if (text != null && text.trim().isNotEmpty) {
+      lastMessageText = text;
+      lastMessageAt = summary.lastMessageAt;
+      lastSenderId = summary.lastSenderId;
+      messageCount = summary.messageCount;
+    }
+  }
+
+  /// Records a locally-known message as the thread's latest preview so the
+  /// chat list is correct immediately, without waiting for a refetch.
+  void notePreview(VendorChatMessage message) {
+    final content = message.content;
+    if (content != null && content.trim().isNotEmpty) {
+      lastMessageText = content;
+      lastMessageAt = message.createdAt;
+      lastSenderId = message.senderId;
+    }
+    messageCount += 1;
+  }
 }
 
 /// Real chat for the store: threads from `GET /chats/vendor`, history from
@@ -66,8 +131,16 @@ class ChatProvider extends ChangeNotifier {
   String _myUserId = '';
   String? lastError;
 
+  // Number of chat screens currently open on the nav stack. Polling (e.g.
+  // MainShell's 25s timer) skips loadThreads while > 0 so the open
+  // conversation is never churned underneath the user.
+  int _openChats = 0;
+
   bool get isLoading => _isLoading;
   List<VendorChatThread> get threads => List.unmodifiable(_threads);
+
+  /// True while a chat screen is open (pushed above the shell).
+  bool get hasOpenChat => _openChats > 0;
 
   /// The signed-in vendor's user id (for mine/theirs bubble alignment).
   String get myUserId => _myUserId;
@@ -90,33 +163,72 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
-  /// Pulls the store's chat threads.
+  /// Pulls the store's chat threads and MERGES them into the current state.
+  /// It only ever refreshes thread-list previews — it never touches a
+  /// thread's loaded [VendorChatThread.messages], and a failed fetch keeps
+  /// the previous thread list instead of blanking it.
   Future<void> loadThreads() async {
     _isLoading = true;
     notifyListeners();
     try {
       await _cacheMyUserId();
       final rows = await _client.get('/chats/vendor') as List<dynamic>;
-      _threads
-        ..clear()
-        ..addAll(rows.map((r) {
-          final m = r as Map<String, dynamic>;
-          return VendorChatThread(
-            id: m['id'] as String,
-            customerName: m['customer_name'] as String? ?? 'Customer',
-            orderId: m['order_id'] as String?,
-          );
-        }));
+      _mergeThreads(rows.map((r) {
+        final m = r as Map<String, dynamic>;
+        return VendorChatThread(
+          id: m['id'] as String,
+          customerName: m['customer_name'] as String? ?? 'Customer',
+          customerId: m['customer_id'] as String?,
+          customerMobile: m['customer_mobile'] as String?,
+          orderId: m['order_id'] as String?,
+          lastMessageText: m['last_message'] as String?,
+          lastMessageAt:
+              DateTime.tryParse(m['last_message_at'] as String? ?? '')?.toLocal(),
+          lastSenderId: m['last_sender_id'] as String?,
+          messageCount: m['message_count'] as int? ?? 0,
+        );
+      }).toList());
       lastError = null;
     } on ApiException catch (e) {
+      // Keep the previous thread list — a failed poll must never blank the
+      // inbox or destroy an open chat's state.
       lastError = e.message;
     }
     _isLoading = false;
     notifyListeners();
   }
 
+  /// Merges server summaries into the existing threads IN PLACE. Existing
+  /// thread objects (and their loaded message history) are preserved; only
+  /// preview metadata is refreshed. Threads whose summary comes back
+  /// missing/empty keep whatever the client already showed.
+  void _mergeThreads(List<VendorChatThread> incoming) {
+    final existing = {for (final t in _threads) t.id: t};
+    final merged = <VendorChatThread>[];
+    for (final server in incoming) {
+      final local = existing[server.id];
+      if (local == null) {
+        merged.add(server);
+      } else {
+        local.adoptSummary(server);
+        merged.add(local);
+      }
+    }
+    // Never drop the thread a chat screen is actively using.
+    final openId = _connectedThreadId;
+    if (openId != null &&
+        existing.containsKey(openId) &&
+        !merged.any((t) => t.id == openId)) {
+      merged.insert(0, existing[openId]!);
+    }
+    _threads
+      ..clear()
+      ..addAll(merged);
+  }
+
   /// Loads history and opens the live socket for [threadId].
   Future<void> connect(String threadId) async {
+    _openChats++;
     await _cacheMyUserId();
     // Ensure the thread exists in state even if loadThreads hasn't run.
     if (threadById(threadId) == null) {
@@ -135,6 +247,14 @@ class ChatProvider extends ChangeNotifier {
       thread.messages
         ..clear()
         ..addAll(rows.map((r) => VendorChatMessage.fromApi(r as Map<String, dynamic>, _myUserId)));
+      // Keep the list preview in sync with the freshly-loaded history.
+      final last = thread.messages.isEmpty ? null : thread.messages.last;
+      if (last != null && (last.content?.trim().isNotEmpty ?? false)) {
+        thread.lastMessageText = last.content;
+        thread.lastMessageAt = last.createdAt;
+        thread.lastSenderId = last.senderId;
+      }
+      thread.messageCount = thread.messages.length;
       lastError = null;
       notifyListeners();
     } on ApiException catch (e) {
@@ -199,7 +319,10 @@ class ChatProvider extends ChangeNotifier {
   }
 
   /// Call when leaving a chat screen.
-  Future<void> disconnect() => _closeSocket();
+  Future<void> disconnect() {
+    if (_openChats > 0) _openChats--;
+    return _closeSocket();
+  }
 
   void sendMessage(String threadId, String content) {
     if (content.trim().isEmpty) return;
@@ -213,13 +336,17 @@ class ChatProvider extends ChangeNotifier {
     }
 
     _channel!.sink.add(jsonEncode({'content': content.trim()}));
-    thread.messages.add(VendorChatMessage(
+    final message = VendorChatMessage(
       id: 'local_${DateTime.now().microsecondsSinceEpoch}',
       senderId: _myUserId,
       content: content.trim(),
       isRead: true,
       createdAt: DateTime.now(),
-    ));
+    );
+    thread.messages.add(message);
+    // Update the thread-list preview immediately so the chat list is
+    // correct without waiting for a refetch.
+    thread.notePreview(message);
     notifyListeners();
   }
 
@@ -235,6 +362,9 @@ class ChatProvider extends ChangeNotifier {
       if (hasSimilar) return;
     }
     thread.messages.add(message);
+    // A message arriving over the socket updates the preview right away so
+    // the list reflects it before the next thread-list fetch.
+    thread.notePreview(message);
     notifyListeners();
   }
 }

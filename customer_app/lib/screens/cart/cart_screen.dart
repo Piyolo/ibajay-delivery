@@ -50,11 +50,25 @@ class CartScreen extends StatelessWidget {
                               if (item.selectedOptions.isNotEmpty)
                                 Padding(
                                   padding: const EdgeInsets.only(top: 4),
-                                  child: Text(
-                                    item.selectedOptions
-                                        .expand((o) => o.choices.map((c) => c.label))
-                                        .join(', '),
-                                    style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      // Each selected choice with its price
+                                      // contribution — the line total below
+                                      // includes them.
+                                      ...item.selectedOptions.expand(
+                                        (o) => o.choices.map(
+                                          (c) => Text(
+                                            c.extraPrice > 0
+                                                ? '${c.label}  +₱${c.extraPrice.toStringAsFixed(0)}'
+                                                : c.label,
+                                            style: const TextStyle(
+                                                color: AppColors.textSecondary,
+                                                fontSize: 12),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                               if (item.specialInstructions.isNotEmpty)

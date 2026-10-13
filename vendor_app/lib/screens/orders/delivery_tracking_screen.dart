@@ -6,6 +6,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import '../../models/order.dart';
 import '../../providers/order_provider.dart';
+import '../../services/phone_launcher.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/tracking_map.dart';
 
@@ -145,7 +146,16 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
     final order = context.watch<OrderProvider>().findById(widget.orderId);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Delivery Tracking')),
+      appBar: AppBar(
+        title: const Text('Delivery Tracking'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.call_outlined),
+            tooltip: 'Call customer',
+            onPressed: () => callCustomer(context, order?.customerMobile),
+          ),
+        ],
+      ),
       body: Column(
         children: [
           Expanded(

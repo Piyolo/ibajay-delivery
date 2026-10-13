@@ -1,6 +1,6 @@
 # Pre-Deployment Review — Ibajay Eats Beta
 
-Date: 2026-10-03 (updated 2026-10-13)
+Date: 2026-10-03 (updated 2026-10-14)
 Prepared during the beta-readiness pass (branch: `website-redesign`).
 
 ## What was done
@@ -29,13 +29,30 @@ Prepared during the beta-readiness pass (branch: `website-redesign`).
 | Token revocation (password change) | ✅ `token_version` column + `tv` claim; migration `003` **applied to Neon** |
 | Rate limiting on `/auth/login` + OTP send | ✅ in-memory limiter (5/min failed logins per IP+mobile; 3/min OTP sends per IP) |
 | Tracking endpoint authorization | ✅ `gps-ping` + order/chat WebSockets now verify ownership |
-| Backend smoke tests | ✅ `backend/tests/test_smoke.py` — 10 passing |
+| Backend smoke tests | ✅ `backend/tests/` — 26 passing |
 | `render.yaml` JWT secret | ✅ pinned (`sync: false`) — set/back up manually, never rotate |
 | Fresh beta APKs `0.2.0+3` | ✅ `dist/*-0.2.0+3-beta.apk` (customer + vendor) |
+| Beta round-2 bug batch (19 items, both apps + backend) | ✅ fixed/implemented 2026-10-14; verified: pytest 26/26, both apps analyze-clean + tests green |
+| Add-on totals (backend + both apps) | ✅ checkout now prices selected choices server-side; apps read `line_total` |
+| Chat stability (vendor) | ✅ thread polling no longer wipes an open chat; previews merge instead of blanking; order→thread matching fixed |
+| Order status stepper + store-status pill on Orders | ✅ stepper alignment fixed; Orders now uses Dashboard's status dialog |
+| Pull-to-refresh (vendor Orders, customer orders/tracking) | ✅ + customer tracking auto-polls every 12s |
+| Address overwrite + barangay pickers | ✅ home top-bar save appends; Manage Addresses + setup flows share searchable picker |
+| Category filter (customer home) | ✅ applies to Featured/Popular and item lists |
+| Profile name persistence | ✅ new `PUT /auth/profile`; name saves server-side |
+| In-app notification center (customer) | ✅ bell + unread badge; backend now persists `notify_order_event` rows; `GET /notifications`, `POST /notifications/read-all` |
+| Call customer (vendor) | ✅ chats, order detail, delivery tracking via `tel:` (`url_launcher`); thread payload now carries `customer_mobile` |
+| Customer order reviews | ✅ review dialog on delivered orders (backend endpoints already existed) |
+| Store setup delivery settings parity | ✅ setup wizard reuses the logged-in BarangaySelector (search + All/None) |
+| OTP email failures | ✅ send-before-commit + loud logging; failed sends now return 502 instead of silent "sent" |
+| Live tracking visibility (customer) | ✅ map always renders when out-for-delivery (waiting-for-ping state); status card earlier in the flow |
+| Alembic `004_cancelled_notification` | ✅ applied to Neon (head) |
 
 ## ⚠️ Deploy ordering (backend)
 
-**The `003_add_token_version` migration is already applied to Neon** (verified: `alembic_version = 003_add_token_version (head)`). The next Render deploy of the backend MUST include this code — it is forward-only compatible: the new code requires the `tv` claim, and every token issued before the deploy lacks it, so **all users are logged out once on the next backend deploy** (they log back in normally). Do not roll the backend back after this deploy without also rolling back the migration.
+**Migrations `003_add_token_version` and `004_cancelled_notification` are already applied to Neon** (verified: `alembic_version = 004_cancelled_notification (head)`). The next Render deploy of the backend MUST include this code — it is forward-only compatible: the new code requires the `tv` claim, and every token issued before the deploy lacks it, so **all users are logged out once on the next backend deploy** (they log back in normally). Do not roll the backend back after this deploy without also rolling back the migrations.
+
+Also in this deploy: `POST /auth/register/start` and `/auth/forgot-password/start` now return **502 when the OTP email fails to send** (previously they silently reported success). If OTP email stops working, check the Render logs for Resend's rejection reason — most likely an unverified `EMAIL_FROM` domain (`ibajayeats.linkpc.net`) in the Resend dashboard.
 
 ## Remaining work before go-live
 
@@ -60,7 +77,7 @@ Prepared during the beta-readiness pass (branch: `website-redesign`).
 
 6. **CI** — wire `flutter analyze && flutter test` (both apps) + `npx tsc --noEmit` (both web apps) into a GitHub Action on push. Currently nothing blocks a broken build from being merged.
 
-7. **Tests committed** — `vendor_app/test/` was untracked until this session; ensure `customer_app/test/` runs green in CI. Backend smoke tests now exist (`backend/tests/test_smoke.py`, 10 passing; run with `venv\Scripts\python.exe -m pytest tests`).
+7. **Tests committed** — `vendor_app/test/` was untracked until this session; ensure `customer_app/test/` runs green in CI. Backend tests now live in `backend/tests/` (26 passing; run with `venv\Scripts\python.exe -m pytest`).
 
 ### Low priority (post-beta)
 
@@ -81,7 +98,9 @@ Prepared during the beta-readiness pass (branch: `website-redesign`).
 ## Startup checklist for beta day
 
 - [ ] Render deploy green, `/health` ok, `/api/v1/admin/*` 401-gated (expect **one forced logout** for everyone — token `tv` claim is new)
-- [ ] Vendor app: install from `dist/IbajayEats-Vendor-0.2.0+3-beta.apk`, login, add add-on, check store profile photo
-- [ ] Customer app: install from `dist/IbajayEats-Customer-0.2.0+3-beta.apk`, login, confirm no location-setup wall
+- [ ] Vendor app: install from `dist/IbajayEats-Vendor-0.2.0+4-beta.apk`, login (first launch after the version bump forces one fresh login by design), verify pull-to-refresh on Orders + chat stability
+- [ ] Customer app: install from `dist/IbajayEats-Customer-0.2.0+4-beta.apk`, login, confirm no location-setup wall, bell badge appears after an order status change
+- [ ] End-to-end: place an order with add-ons → totals include them on checkout, vendor order detail, and customer tracking
+- [ ] OTP registration email arrives (if 502: check Resend domain verification for `ibajayeats.linkpc.net`)
 - [ ] Admin console: sign in, confirm sidebar counts match live data
 - [ ] Rotate admin password; revoke the `09000000001` demo account after tester onboarding if desired

@@ -71,8 +71,32 @@ class VendorProvider extends ChangeNotifier {
 
   List<VendorProfile> get allVendors => _vendors;
 
-  List<String> get categories =>
-      _vendors.expand((v) => v.categories).toSet().toList()..sort();
+  List<String> get categories {
+    // Chips must reflect BOTH data sources: the vendor's own tags
+    // (VendorCategory, e.g. "Grocery") and the categories carried by its
+    // menu items (FoodCategory, e.g. "Meals") — a store can have items in
+    // a category it isn't tagged with, and picking a chip that matched
+    // nothing made the filter look broken.
+    final names = <String>{};
+    for (final v in _vendors) {
+      names.addAll(v.categories);
+      names.addAll(v.menu.map((f) => f.category).where((c) => c.isNotEmpty));
+    }
+    return names.toList()..sort();
+  }
+
+  /// Whether [vendor] belongs to [category], matching the vendor's tags
+  /// OR any of its menu items' categories (case-insensitive — backend
+  /// category names are free text).
+  bool _matchesCategory(VendorProfile vendor, String category) {
+    final wanted = category.trim().toLowerCase();
+    if (wanted.isEmpty) return true;
+    if (vendor.categories.any((c) => c.trim().toLowerCase() == wanted)) {
+      return true;
+    }
+    return vendor.menu.any(
+        (f) => f.category.trim().toLowerCase() == wanted);
+  }
 
   VendorProfile? vendorById(String id) {
     try {
@@ -86,14 +110,27 @@ class VendorProvider extends ChangeNotifier {
 
   /// Featured foods for the Home screen's "Featured Foods" carousel —
   /// items flagged `isFeatured` in the data source, across all vendors.
-  List<FoodItemRef> get featuredFoodItems => _vendors
-      .expand((v) => v.menu.where((f) => f.isFeatured && f.isAvailable))
-      .toList();
+  /// Respects the selected category (matched against the ITEM's own
+  /// category) so tapping a chip visibly filters every section, not just
+  /// Nearby Stores.
+  List<FoodItemRef> get featuredFoodItems {
+    final wanted = selectedCategory?.trim().toLowerCase();
+    return _vendors
+        .expand((v) => v.menu.where((f) =>
+            f.isFeatured &&
+            f.isAvailable &&
+            (wanted == null || f.category.trim().toLowerCase() == wanted)))
+        .toList();
+  }
 
   /// Popular Stores — highest rated vendors, for the Home screen's
-  /// "Popular Stores" carousel.
+  /// "Popular Stores" carousel. Filtered by the selected category too.
   List<VendorProfile> get popularVendors {
-    final sorted = [..._vendors]..sort((a, b) => b.rating.compareTo(a.rating));
+    final category = selectedCategory;
+    final sorted = _vendors
+        .where((v) => category == null || _matchesCategory(v, category))
+        .toList()
+      ..sort((a, b) => b.rating.compareTo(a.rating));
     return sorted.take(8).toList();
   }
 
@@ -123,7 +160,7 @@ class VendorProvider extends ChangeNotifier {
       if (filterDeliveryAvailable && !v.deliverySettings.deliveryEnabled) return false;
       if (filterPickupAvailable && !v.deliverySettings.pickupEnabled) return false;
       if (filterScheduledAvailable && !v.deliverySettings.scheduledDeliveryEnabled) return false;
-      if (selectedCategory != null && !v.categories.contains(selectedCategory)) return false;
+      if (selectedCategory != null && !_matchesCategory(v, selectedCategory!)) return false;
       if (searchQuery.trim().isNotEmpty) {
         final q = searchQuery.trim().toLowerCase();
         final matchesStore = v.storeName.toLowerCase().contains(q);

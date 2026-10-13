@@ -22,6 +22,14 @@ class LocationProvider extends ChangeNotifier {
   String? _userId;
   bool _syncing = false;
 
+  /// Count of in-flight add/remove operations. While a mutation is
+  /// running, [restore]/[syncFromServer] must not rebuild the list from
+  /// the (stale) cache or the server — that would drop the optimistic
+  /// entry the mutation just made and desync its server copy.
+  int _mutating = 0;
+
+  bool get _canRebuild => _mutating == 0;
+
   /// Error from the last failed server sync/add/remove (UI display).
   String? lastError;
 
@@ -65,6 +73,7 @@ class LocationProvider extends ChangeNotifier {
   Future<void> restore() async {
     final uid = _userId;
     if (uid == null) return;
+    if (!_canRebuild) return;
     final raw = await PreferencesService.getString(PreferencesService.kAddressesFor(uid));
     _activeAddressId =
         await PreferencesService.getString(PreferencesService.kActiveAddressIdFor(uid));
@@ -90,6 +99,7 @@ class LocationProvider extends ChangeNotifier {
   /// Local entries that never reached the server are preserved.
   Future<void> syncFromServer() async {
     if (_api.authToken == null || _syncing || _userId == null) return;
+    if (!_canRebuild) return;
     _syncing = true;
     notifyListeners();
     try {
@@ -130,54 +140,66 @@ class LocationProvider extends ChangeNotifier {
   }
 
   Future<void> addAddress(SavedAddress address) async {
-    if (_addresses.isEmpty) address.isDefault = true;
-    if (address.isDefault) {
-      for (final a in _addresses) {
-        a.isDefault = false;
-      }
-    }
-    // Optimistic local add; swap in the server copy once created.
-    _addresses.add(address);
-    _activeAddressId = address.id;
-    notifyListeners();
-    await _persist();
-
-    if (_api.authToken == null) return;
+    _mutating++;
     try {
-      final created = await _api.post('/addresses', body: {
-        'label': address.label,
-        'full_address': address.fullAddress,
-        'barangay': address.barangay,
-        'latitude': address.latitude,
-        'longitude': address.longitude,
-        'landmark': address.landmark,
-        'is_default': address.isDefault,
-      }) as Map<String, dynamic>;
-      final saved = _addressFromApi(created);
-      final index = _addresses.indexWhere((a) => a.id == address.id);
-      if (index >= 0) _addresses[index] = saved;
-      if (_activeAddressId == address.id) _activeAddressId = saved.id;
-      lastError = null;
-    } on ApiException catch (e) {
-      // Kept locally with its temporary ID; retried on next successful add.
-      lastError = e.message;
+      if (_addresses.isEmpty) address.isDefault = true;
+      if (address.isDefault) {
+        for (final a in _addresses) {
+          a.isDefault = false;
+        }
+      }
+      // Optimistic local add; swap in the server copy once created.
+      _addresses.add(address);
+      _activeAddressId = address.id;
+      notifyListeners();
+      await _persist();
+
+      if (_api.authToken == null) return;
+      try {
+        final created = await _api.post('/addresses', body: {
+          'label': address.label,
+          'full_address': address.fullAddress,
+          'barangay': address.barangay,
+          'latitude': address.latitude,
+          'longitude': address.longitude,
+          'landmark': address.landmark,
+          'is_default': address.isDefault,
+        }) as Map<String, dynamic>;
+        final saved = _addressFromApi(created);
+        final index = _addresses.indexWhere((a) => a.id == address.id);
+        if (index >= 0) _addresses[index] = saved;
+        if (_activeAddressId == address.id) _activeAddressId = saved.id;
+        lastError = null;
+      } on ApiException catch (e) {
+        // Kept locally with its temporary ID; retried on next successful add.
+        lastError = e.message;
+      }
+      notifyListeners();
+      await _persist();
+    } finally {
+      _mutating--;
     }
-    notifyListeners();
-    await _persist();
   }
 
   Future<void> removeAddress(String id) async {
-    _addresses.removeWhere((a) => a.id == id);
-    if (_activeAddressId == id) _activeAddressId = _addresses.isNotEmpty ? _addresses.first.id : null;
-    notifyListeners();
-    await _persist();
-
-    if (_api.authToken == null || !_uuidPattern.hasMatch(id)) return;
+    _mutating++;
     try {
-      await _api.delete('/addresses/$id');
-      lastError = null;
-    } on ApiException catch (e) {
-      lastError = e.message;
+      _addresses.removeWhere((a) => a.id == id);
+      if (_activeAddressId == id) {
+        _activeAddressId = _addresses.isNotEmpty ? _addresses.first.id : null;
+      }
+      notifyListeners();
+      await _persist();
+
+      if (_api.authToken == null || !_uuidPattern.hasMatch(id)) return;
+      try {
+        await _api.delete('/addresses/$id');
+        lastError = null;
+      } on ApiException catch (e) {
+        lastError = e.message;
+      }
+    } finally {
+      _mutating--;
     }
   }
 
@@ -187,21 +209,35 @@ class LocationProvider extends ChangeNotifier {
     await _persist();
   }
 
-  /// Convenience for the initial "Location Setup" step. Re-saving REPLACES
-  /// the existing Home entry/entries instead of stacking duplicates — the
-  /// backend has no address-update endpoint, so replacement is
-  /// delete-then-create with the fresh pick becoming active.
+  /// Saves the location picked on the "Location Setup" screen (used by
+  /// BOTH onboarding and the home screen's address chip).
+  ///
+  /// This NEVER deletes other saved addresses: an earlier version wiped
+  /// every "Home"-labelled entry server-side (which is how most Manage
+  /// Addresses entries were stored), so re-picking a location from the
+  /// top bar silently emptied the address book. Instead:
+  ///  - an identical address already saved is simply made active, and
+  ///  - otherwise the new pick is APPENDED and becomes active.
   Future<void> saveInitialLocation({
     required String fullAddress,
     required String barangay,
     required double lat,
     required double lng,
   }) async {
-    final staleHomes =
-        _addresses.where((a) => a.label.toLowerCase() == 'home').map((a) => a.id).toList();
-    for (final id in staleHomes) {
-      await removeAddress(id);
+    // Same spot already saved (re-picking the current location) → just
+    // switch to it instead of stacking a duplicate entry.
+    SavedAddress? duplicate;
+    for (final a in _addresses) {
+      if (a.barangay == barangay && a.fullAddress == fullAddress) {
+        duplicate = a;
+        break;
+      }
     }
+    if (duplicate != null) {
+      await setActive(duplicate.id);
+      return;
+    }
+
     await addAddress(SavedAddress(
       id: 'addr_${DateTime.now().millisecondsSinceEpoch}',
       label: 'Home',

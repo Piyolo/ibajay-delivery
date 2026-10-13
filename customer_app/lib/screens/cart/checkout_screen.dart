@@ -250,6 +250,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     final total = (cart.subtotal + deliveryFee - promoDiscount)
         .clamp(0.0, double.infinity);
 
+    // Base item cost vs. the add-on/choice contribution — the summary
+    // breaks them out so the total visibly includes selected add-ons.
+    final itemsBaseTotal = cart.items.fold<double>(
+        0, (sum, i) => sum + i.foodItem.price * i.quantity);
+    final addonsTotal = (cart.subtotal - itemsBaseTotal)
+        .clamp(0.0, double.infinity);
+
     Widget fulfillmentTile(FulfillmentType value, String title, String subtitle) {
       return RadioListTile<FulfillmentType>(
         value: value,
@@ -392,17 +399,54 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 padding: const EdgeInsets.all(14),
                 child: Column(
                   children: [
+                    // Each line lists its selected add-ons with their price
+                    // contribution so the subtotal/total visibly include them.
                     ...cart.items.map((i) => Padding(
-                          padding: const EdgeInsets.only(bottom: 6),
-                          child: Row(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('${i.quantity}x ', style: const TextStyle(color: AppColors.textSecondary)),
-                              Expanded(child: Text(i.foodItem.name)),
-                              Text('₱${i.lineTotal.toStringAsFixed(0)}'),
+                              Row(
+                                children: [
+                                  Text('${i.quantity}x ',
+                                      style: const TextStyle(color: AppColors.textSecondary)),
+                                  Expanded(child: Text(i.foodItem.name)),
+                                  Text('₱${i.lineTotal.toStringAsFixed(0)}'),
+                                ],
+                              ),
+                              ...i.selectedOptions.expand(
+                                (o) => o.choices.map(
+                                  (c) => Padding(
+                                    padding: const EdgeInsets.only(left: 24, top: 2),
+                                    child: Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            '• ${c.label}',
+                                            style: const TextStyle(
+                                                fontSize: 12, color: AppColors.textSecondary),
+                                          ),
+                                        ),
+                                        Text(
+                                          c.extraPrice > 0
+                                              ? '+₱${c.extraPrice.toStringAsFixed(0)}'
+                                              : 'Free',
+                                          style: const TextStyle(
+                                              fontSize: 12,
+                                              color: AppColors.textSecondary,
+                                              fontWeight: FontWeight.w600),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
                             ],
                           ),
                         )),
                     const Divider(),
+                    _summaryRow('Items', itemsBaseTotal),
+                    if (addonsTotal > 0) _summaryRow('Add-ons & extras', addonsTotal),
                     _summaryRow('Subtotal', cart.subtotal),
                     _summaryRow('Delivery Fee (estimate)', deliveryFee),
                     if (_appliedPromoCode != null) ...[

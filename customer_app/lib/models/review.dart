@@ -43,3 +43,30 @@ class VendorReview {
     );
   }
 }
+
+/// The signed-in customer's own review of ONE order
+/// (`GET/POST /orders/{id}/review` — ReviewOut shape).
+class OrderReview {
+  final String id;
+  final int stars;
+  final String comment;
+  final String? vendorResponse;
+  final DateTime createdAt;
+
+  OrderReview({
+    required this.id,
+    required this.stars,
+    this.comment = '',
+    this.vendorResponse,
+    required this.createdAt,
+  });
+
+  factory OrderReview.fromApi(Map<String, dynamic> json) => OrderReview(
+        id: json['id'] as String? ?? '',
+        stars: (json['stars'] as num?)?.toInt() ?? 0,
+        comment: json['comment'] as String? ?? '',
+        vendorResponse: json['vendor_response'] as String?,
+        createdAt: DateTime.tryParse(json['created_at'] as String? ?? '')?.toLocal() ??
+            DateTime.now(),
+      );
+}

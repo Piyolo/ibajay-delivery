@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../providers/chat_provider.dart';
+import '../../providers/order_provider.dart';
+import '../../services/phone_launcher.dart';
 import '../../theme/app_theme.dart';
 
 /// Order-based chat between the store and a customer, backed by
@@ -73,6 +75,22 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           ],
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.call_outlined),
+            tooltip: 'Call customer',
+            onPressed: () {
+              // The thread payload carries the customer's mobile directly;
+              // fall back to the linked order's copy for older payloads.
+              final fromThread = thread?.customerMobile;
+              final order = thread?.orderId == null
+                  ? null
+                  : context.read<OrderProvider>().findById(thread!.orderId!);
+              callCustomer(
+                  context, (fromThread != null && fromThread.isNotEmpty) ? fromThread : order?.customerMobile);
+            },
+          ),
+        ],
       ),
       body: SafeArea(
         child: Column(

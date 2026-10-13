@@ -7,7 +7,7 @@ from fastapi.responses import RedirectResponse
 from app.core.config import get_settings
 from app.core.db import Base, engine
 import app.models  # noqa: F401  -- registers every model's metadata
-from app.routers import addresses, admin, auth, chat, orders, realtime_ws, reviews, tracking, uploads, vendors, vendor_portal, waitlist
+from app.routers import addresses, admin, auth, chat, notifications, orders, realtime_ws, reviews, tracking, uploads, vendors, vendor_portal, waitlist
 
 settings = get_settings()
 
@@ -46,6 +46,7 @@ app.include_router(vendors.router, prefix=api)
 app.include_router(vendor_portal.router, prefix=api)
 app.include_router(uploads.router, prefix=api)
 app.include_router(orders.router, prefix=api)
+app.include_router(notifications.router, prefix=api)
 app.include_router(tracking.router, prefix=api)
 app.include_router(chat.router, prefix=api)
 app.include_router(reviews.router, prefix=api)

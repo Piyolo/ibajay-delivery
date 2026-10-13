@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/cart_provider.dart';
 import '../../providers/location_provider.dart';
+import '../../providers/notification_provider.dart';
 import '../../providers/vendor_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/common.dart';
@@ -10,6 +11,7 @@ import '../../widgets/vendor_card.dart';
 import '../../widgets/vendor_card_compact.dart';
 import '../cart/cart_screen.dart';
 import '../location/location_setup_screen.dart';
+import '../notifications/notifications_screen.dart';
 import '../vendor/vendor_profile_screen.dart';
 import 'store_listing_screen.dart';
 
@@ -44,6 +46,22 @@ class HomeScreen extends StatelessWidget {
           ),
         ),
         actions: [
+          // In-app notification bell — the unread dot clears once the
+          // notification center is opened or everything is marked read.
+          Padding(
+            padding: const EdgeInsets.only(right: 4),
+            child: IconButton(
+              tooltip: 'Notifications',
+              onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const NotificationsScreen())),
+              icon: context.watch<NotificationProvider>().hasUnread
+                  ? const Badge(
+                      smallSize: 9,
+                      child: Icon(Icons.notifications_outlined),
+                    )
+                  : const Icon(Icons.notifications_outlined),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: IconButton(
@@ -64,6 +82,9 @@ class HomeScreen extends StatelessWidget {
         child: RefreshIndicator(
           onRefresh: () {
             final location = context.read<LocationProvider>();
+            // Order updates arrive here too — refresh the bell alongside
+            // the store list.
+            context.read<NotificationProvider>().refresh();
             return context.read<VendorProvider>().reload(
                   refLat: location.referenceLat,
                   refLng: location.referenceLng,

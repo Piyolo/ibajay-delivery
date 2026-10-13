@@ -9,6 +9,7 @@ import '../../theme/app_theme.dart';
 import '../../widgets/common.dart';
 import '../../widgets/status_badge.dart';
 import 'order_tracking_screen.dart';
+import 'review_dialog.dart';
 
 class OrderHistoryScreen extends StatefulWidget {
   const OrderHistoryScreen({super.key});
@@ -53,6 +54,9 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
 class _ActiveOrdersTab extends StatelessWidget {
   const _ActiveOrdersTab();
 
+  Future<void> _refresh(BuildContext context) =>
+      context.read<OrderProvider>().loadOrders();
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<OrderProvider>();
@@ -61,27 +65,44 @@ class _ActiveOrdersTab extends StatelessWidget {
       return const Center(child: CircularProgressIndicator());
     }
     if (orders.isEmpty) {
-      return EmptyState(
-        icon: Icons.receipt_long_outlined,
-        title: provider.lastError != null ? 'Could not load your orders' : 'No active orders',
-        subtitle: provider.lastError ?? 'Your ongoing orders will show up here.',
-        action: OutlinedButton(
-          onPressed: () => context.read<OrderProvider>().loadOrders(),
-          child: const Text('Retry'),
+      // Scrollable wrapper so pull-to-refresh works on the empty state
+      // too — status changes shouldn't need an app restart to appear.
+      return RefreshIndicator(
+        onRefresh: () => _refresh(context),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            EmptyState(
+              icon: Icons.receipt_long_outlined,
+              title: provider.lastError != null ? 'Could not load your orders' : 'No active orders',
+              subtitle: provider.lastError ?? 'Your ongoing orders will show up here.',
+              action: OutlinedButton(
+                onPressed: () => context.read<OrderProvider>().loadOrders(),
+                child: const Text('Retry'),
+              ),
+            ),
+          ],
         ),
       );
     }
-    return ListView.separated(
-      padding: const EdgeInsets.all(16),
-      itemCount: orders.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
-      itemBuilder: (context, i) => _OrderCard(order: orders[i], showReorder: false),
+    return RefreshIndicator(
+      onRefresh: () => _refresh(context),
+      child: ListView.separated(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        itemCount: orders.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 10),
+        itemBuilder: (context, i) => _OrderCard(order: orders[i], showReorder: false),
+      ),
     );
   }
 }
 
 class _PastOrdersTab extends StatelessWidget {
   const _PastOrdersTab();
+
+  Future<void> _refresh(BuildContext context) =>
+      context.read<OrderProvider>().loadOrders();
 
   @override
   Widget build(BuildContext context) {
@@ -91,18 +112,32 @@ class _PastOrdersTab extends StatelessWidget {
       return const Center(child: CircularProgressIndicator());
     }
     if (orders.isEmpty) {
-      return EmptyState(
-        icon: Icons.history,
-        title: provider.lastError != null ? 'Could not load your orders' : 'No past orders yet',
-        subtitle: provider.lastError ?? 'Completed and cancelled orders will show up here.',
-        action: OutlinedButton(onPressed: () => context.read<OrderProvider>().loadOrders(), child: const Text('Retry')),
+      return RefreshIndicator(
+        onRefresh: () => _refresh(context),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            EmptyState(
+              icon: Icons.history,
+              title: provider.lastError != null ? 'Could not load your orders' : 'No past orders yet',
+              subtitle: provider.lastError ?? 'Completed and cancelled orders will show up here.',
+              action: OutlinedButton(
+                  onPressed: () => context.read<OrderProvider>().loadOrders(),
+                  child: const Text('Retry')),
+            ),
+          ],
+        ),
       );
     }
-    return ListView.separated(
-      padding: const EdgeInsets.all(16),
-      itemCount: orders.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
-      itemBuilder: (context, i) => _OrderCard(order: orders[i], showReorder: true),
+    return RefreshIndicator(
+      onRefresh: () => _refresh(context),
+      child: ListView.separated(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        itemCount: orders.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 10),
+        itemBuilder: (context, i) => _OrderCard(order: orders[i], showReorder: true),
+      ),
     );
   }
 }
@@ -190,6 +225,24 @@ class _OrderCard extends StatelessWidget {
                     ),
                 ],
               ),
+              // Delivered/completed orders can be rated — the dialog
+              // shows the stored review when one already exists.
+              if (showReorder &&
+                  (order.status == OrderStatus.delivered ||
+                      order.status == OrderStatus.completed))
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: () => showOrderReviewDialog(
+                      context,
+                      orderId: order.id,
+                      vendorName: order.vendorName,
+                    ),
+                    icon: const Icon(Icons.star_rounded, size: 16),
+                    label: const Text('Rate order',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  ),
+                ),
             ],
           ),
         ),

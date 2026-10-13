@@ -136,15 +136,25 @@ class OrderLineItem {
   final List<String> optionLabels;
   final String specialInstructions;
 
+  /// Server-computed line total (`line_total` / `total_price`), which
+  /// includes add-on choice prices. Null only when the payload predates
+  /// per-item pricing, in which case we fall back to unit × qty.
+  final double? _serverLineTotal;
+
   OrderLineItem({
     required this.foodName,
     required this.quantity,
     required this.unitPrice,
     this.optionLabels = const [],
     this.specialInstructions = '',
-  });
+    double? lineTotal,
+  }) : _serverLineTotal = lineTotal;
 
-  double get subtotal => unitPrice * quantity;
+  /// Line total used for display. Prefers the backend's own figure so
+  /// add-ons/choice prices are included; unit × qty would silently drop
+  /// them (the server computes line_total from live option prices).
+  double get subtotal =>
+      _serverLineTotal ?? unitPrice * quantity;
 }
 
 class CustomerOrder {
@@ -186,14 +196,19 @@ class CustomerOrder {
     this.destinationLng,
     this.cancellationReason = '',
     this.discount = 0,
-  });
+    double? serverTotal,
+  }) : _serverTotal = serverTotal;
 
   String cancellationReason;
   double discount;
 
+  /// The backend's own `total` when the payload carried it — authoritative
+  /// (it already includes add-on choice prices on every line).
+  final double? _serverTotal;
+
   double get itemsTotal => items.fold(0, (sum, i) => sum + i.subtotal);
   double get grandTotal {
-    final raw = itemsTotal + deliveryFee - discount;
+    final raw = _serverTotal ?? (itemsTotal + deliveryFee - discount);
     return raw < 0 ? 0 : raw;
   }
 
@@ -227,6 +242,9 @@ class CustomerOrder {
             foodName: m['item_name'] as String? ?? '',
             quantity: (m['quantity'] as num?)?.toInt() ?? 1,
             unitPrice: (m['unit_price'] as num?)?.toDouble() ?? 0,
+            // Prefer the server's per-line total (includes add-on choice
+            // prices) over recomputing unit × qty.
+            lineTotal: ((m['line_total'] ?? m['total_price']) as num?)?.toDouble(),
             optionLabels: optionLabels,
             specialInstructions: m['special_instructions'] as String? ?? '',
           );
@@ -254,6 +272,7 @@ class CustomerOrder {
       destinationLat: (json['delivery_latitude'] as num?)?.toDouble(),
       destinationLng: (json['delivery_longitude'] as num?)?.toDouble(),
       cancellationReason: json['cancellation_reason'] as String? ?? '',
+      serverTotal: (json['total'] as num?)?.toDouble(),
     );
   }
 }

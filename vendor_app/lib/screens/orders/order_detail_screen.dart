@@ -6,6 +6,7 @@ import '../../models/order.dart';
 import '../../providers/chat_provider.dart';
 import '../../providers/order_provider.dart';
 import '../../theme/app_theme.dart';
+import '../../services/phone_launcher.dart';
 import '../../widgets/status_badge.dart';
 import '../../widgets/tracking_map.dart';
 import '../chat/chat_screen.dart';
@@ -24,32 +25,39 @@ class OrderDetailScreen extends StatelessWidget {
         OrderStatus.delivered,
       ];
 
-  /// Opens the conversation for this order (threads come from
-  /// GET /chats/vendor and carry the matching order_id).
-  Future<void> _openChat(BuildContext context) async {
+  /// Opens the conversation for this order. Threads come from
+  /// GET /chats/vendor. The backend keeps ONE thread per (customer, vendor)
+  /// and only links it to the FIRST order it was opened from — so matching
+  /// by order id alone misses the customer's real thread when they opened
+  /// chat from a different order. Match by order id first, then fall back
+  /// to this order's customer's thread.
+  VendorChatThread? _resolveThread(List<VendorChatThread> threads, VendorOrder order) {
+    for (final t in threads) {
+      if (t.orderId == order.id) return t;
+    }
+    for (final t in threads) {
+      if (t.customerName.isNotEmpty && t.customerName == order.customerName) return t;
+    }
+    return null;
+  }
+
+  Future<void> _openChat(BuildContext context, VendorOrder order) async {
     final messenger = ScaffoldMessenger.of(context);
     final chat = context.read<ChatProvider>();
-    VendorChatThread? find() {
-      for (final t in chat.threads) {
-        if (t.orderId == orderId) return t;
-      }
-      return null;
-    }
-
-    var thread = find();
-    if (thread == null) {
-      await chat.loadThreads();
-      thread = find();
-    }
-    final resolved = thread;
+    var resolved = _resolveThread(chat.threads, order);
     if (resolved == null) {
+      await chat.loadThreads();
+      resolved = _resolveThread(chat.threads, order);
+    }
+    final thread = resolved;
+    if (thread == null) {
       messenger.showSnackBar(const SnackBar(
           content: Text('No conversation yet — the customer can start one from their order')));
       return;
     }
     if (!context.mounted) return;
     Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => ChatScreen(threadId: resolved.id)));
+        .push(MaterialPageRoute(builder: (_) => ChatScreen(threadId: thread.id)));
   }
 
   @override
@@ -73,8 +81,14 @@ class OrderDetailScreen extends StatelessWidget {
         title: Text(order.orderNumber.isNotEmpty ? order.orderNumber : 'Order'),
         actions: [
           IconButton(
+            icon: const Icon(Icons.call_outlined),
+            tooltip: 'Call customer',
+            onPressed: () => callCustomer(context, order.customerMobile),
+          ),
+          IconButton(
             icon: const Icon(Icons.chat_bubble_outline),
-            onPressed: () => _openChat(context),
+            tooltip: 'Chat with customer',
+            onPressed: () => _openChat(context, order),
           ),
         ],
       ),
@@ -325,6 +339,11 @@ class _StatusStepper extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
+      // Top-align every cell: labels wrap to different line counts (e.g.
+      // "Out for Delivery" wraps), and the default centered alignment
+      // pushed shorter cells' dot/line rows DOWN, leaving a visible step /
+      // gap in the progress line between "Ready" and "Out for Delivery".
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: List.generate(flow.length, (i) {
         final done = i <= currentIndex;
         return Expanded(

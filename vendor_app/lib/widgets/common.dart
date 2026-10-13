@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../models/vendor.dart';
 import '../theme/app_theme.dart';
 
 class SectionHeader extends StatelessWidget {
@@ -110,5 +111,49 @@ class AppPillToggle extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// The store's live status chip (Open/Busy/Paused/Closed). Tapping it opens
+/// the Store Status options screen — shared by Dashboard and Orders so both
+/// behave the same (options first, never an instant open/closed flip).
+class StoreStatusPill extends StatelessWidget {
+  final StoreStatus status;
+  final VoidCallback? onTap;
+  const StoreStatusPill({super.key, required this.status, this.onTap});
+
+  Color get _color {
+    switch (status) {
+      case StoreStatus.open:
+        return AppColors.success;
+      case StoreStatus.busy:
+        return AppColors.warning;
+      case StoreStatus.paused:
+        return AppColors.info;
+      case StoreStatus.closed:
+        return AppColors.danger;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pill = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(
+        color: _color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+        border: Border.all(color: _color),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(width: 7, height: 7, decoration: BoxDecoration(color: _color, shape: BoxShape.circle)),
+          const SizedBox(width: 6),
+          Text(status.label, style: TextStyle(color: _color, fontWeight: FontWeight.w700, fontSize: 12)),
+        ],
+      ),
+    );
+    if (onTap == null) return pill;
+    return InkWell(borderRadius: BorderRadius.circular(AppRadius.pill), onTap: onTap, child: pill);
   }
 }

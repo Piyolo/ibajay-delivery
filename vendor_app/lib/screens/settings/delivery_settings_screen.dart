@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../models/vendor.dart';
 import '../../providers/vendor_provider.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/barangay_selector.dart';
 
 class DeliverySettingsScreen extends StatefulWidget {
   const DeliverySettingsScreen({super.key});
@@ -15,7 +16,6 @@ class DeliverySettingsScreen extends StatefulWidget {
 class _DeliverySettingsScreenState extends State<DeliverySettingsScreen> {
   late DeliverySettings _settings;
   late TextEditingController _feeController;
-  String _search = '';
   bool _saving = false;
 
   @override
@@ -52,14 +52,6 @@ class _DeliverySettingsScreenState extends State<DeliverySettingsScreen> {
     }
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Delivery settings saved')));
     Navigator.of(context).pop();
-  }
-
-  void _toggleBarangay(String b) {
-    setState(() {
-      _settings.deliveryBarangays.contains(b)
-          ? _settings.deliveryBarangays.remove(b)
-          : _settings.deliveryBarangays.add(b);
-    });
   }
 
   @override
@@ -108,76 +100,15 @@ class _DeliverySettingsScreenState extends State<DeliverySettingsScreen> {
               onChanged: (v) => setState(() => _settings.baseDeliveryFee = v),
             ),
             const SizedBox(height: 20),
-            Row(
-              children: [
-                const Expanded(
-                  child: Text('Delivery Areas', style: TextStyle(fontWeight: FontWeight.w700)),
-                ),
-                Text(
-                  '${_settings.deliveryBarangays.length} of ${kIbajayBarangays.length} barangays',
-                  style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-                ),
-              ],
+            BarangaySelector(
+              description:
+                  'Pick which barangays in Ibajay you can deliver to. Customers outside these areas won\'t be offered delivery.',
+              selected: _settings.deliveryBarangays,
+              onChanged: (list) => setState(() => _settings.deliveryBarangays = list),
             ),
-            const SizedBox(height: 4),
-            const Text(
-              'Pick which barangays in Ibajay you can deliver to. Customers outside these areas won\'t be offered delivery.',
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    onChanged: (v) => setState(() => _search = v),
-                    decoration: const InputDecoration(
-                      prefixIcon: Icon(Icons.search, size: 20),
-                      hintText: 'Search barangay',
-                      isDense: true,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                TextButton(
-                  onPressed: () => setState(() => _settings.deliveryBarangays = [...kIbajayBarangays]),
-                  child: const Text('All'),
-                ),
-                TextButton(
-                  onPressed: () => setState(() => _settings.deliveryBarangays = []),
-                  child: const Text('None'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            ..._filteredBarangays.map(_barangayTile),
-            if (_filteredBarangays.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 16),
-                child: Text('No barangays match your search.',
-                    style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-              ),
           ],
         ),
       ),
-    );
-  }
-
-  List<String> get _filteredBarangays {
-    final q = _search.trim().toLowerCase();
-    if (q.isEmpty) return kIbajayBarangays;
-    return kIbajayBarangays.where((b) => b.toLowerCase().contains(q)).toList();
-  }
-
-  Widget _barangayTile(String b) {
-    final selected = _settings.deliveryBarangays.contains(b);
-    return CheckboxListTile(
-      value: selected,
-      controlAffinity: ListTileControlAffinity.leading,
-      dense: true,
-      contentPadding: EdgeInsets.zero,
-      title: Text(b, style: const TextStyle(fontSize: 14)),
-      activeColor: AppColors.primary,
-      onChanged: (_) => _toggleBarangay(b),
     );
   }
 

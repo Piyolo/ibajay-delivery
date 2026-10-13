@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import '../../models/order.dart';
+import '../../models/review.dart';
+import '../../models/vendor.dart';
 import '../../providers/chat_provider.dart';
 import '../../providers/order_provider.dart';
 import '../../providers/vendor_provider.dart';
@@ -10,6 +14,7 @@ import '../../theme/app_theme.dart';
 import '../../widgets/status_badge.dart';
 import '../../widgets/tracking_map.dart';
 import '../chat/chat_screen.dart';
+import 'review_dialog.dart';
 
 class OrderTrackingScreen extends StatefulWidget {
   final String orderId;
@@ -23,6 +28,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   // Captured for dispose(), where inherited lookups are no longer allowed.
   late final OrderProvider _orders = context.read<OrderProvider>();
 
+  Timer? _refreshTimer;
+  OrderReview? _myReview;
   bool? _alreadyReviewed;
 
   @override
@@ -41,13 +48,53 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     } else {
       _orders.watchOrder(widget.orderId);
     }
-    _checkReviewed();
+    _loadReview();
+
+    // Status updates only arrived over the tracking WebSocket before —
+    // which covers nothing while the socket is down. Poll so accepted /
+    // preparing / out-for-delivery transitions appear without the
+    // customer having to reopen the app.
+    _refreshTimer =
+        Timer.periodic(const Duration(seconds: 12), (_) => _autoRefresh());
   }
 
-  Future<void> _checkReviewed() async {
+  /// Periodic pull: refresh this order, and (re)start live tracking the
+  /// moment it becomes out_for_delivery — including transitions that
+  /// happened while the socket wasn't connected.
+  Future<void> _autoRefresh() async {
+    if (!mounted) return;
+    final fresh = await _orders.refreshOrder(widget.orderId);
+    if (!mounted || fresh == null) return;
+    if (fresh.status == OrderStatus.outForDelivery &&
+        _orders.watchedOrderId != widget.orderId) {
+      _orders.watchOrder(widget.orderId);
+    }
+    if (fresh.status == OrderStatus.delivered ||
+        fresh.status == OrderStatus.completed) {
+      await _loadReview();
+    }
+  }
+
+  /// Pull-to-refresh: same as the timer, but immediate.
+  Future<void> _manualRefresh() async {
+    await _orders.refreshOrder(widget.orderId);
+    if (!mounted) return;
+    final order = _orders.byId(widget.orderId);
+    if (order?.status == OrderStatus.outForDelivery &&
+        _orders.watchedOrderId != widget.orderId) {
+      _orders.watchOrder(widget.orderId);
+    }
+  }
+
+  Future<void> _loadReview() async {
     try {
-      final reviewed = await _orders.hasReview(widget.orderId);
-      if (mounted) setState(() => _alreadyReviewed = reviewed);
+      final review = await _orders.getReview(widget.orderId);
+      if (mounted) {
+        setState(() {
+          _myReview = review;
+          _alreadyReviewed = review != null;
+        });
+      }
     } catch (_) {
       // Unknown state — assume unreviewed; the backend rejects duplicates.
       if (mounted) setState(() => _alreadyReviewed = false);
@@ -56,6 +103,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
 
   @override
   void dispose() {
+    _refreshTimer?.cancel();
     _orders.stopWatching();
     super.dispose();
   }
@@ -96,6 +144,17 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     }
   }
 
+  /// Opens the shared rate-and-review dialog, then reloads the stored
+  /// review so the screen shows it right after submitting.
+  Future<void> _rateOrder(CustomerOrder order) async {
+    await showOrderReviewDialog(
+      context,
+      orderId: order.id,
+      vendorName: order.vendorName,
+    );
+    if (mounted) await _loadReview();
+  }
+
   @override
   Widget build(BuildContext context) {
     final orderProvider = context.watch<OrderProvider>();
@@ -110,6 +169,17 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         ),
       );
     }
+
+    // The socket only attaches while the order is out_for_delivery, so a
+    // status flip that happened while this screen was open (poll, another
+    // device, a missed WebSocket push) must start it from here too.
+    if (order.status == OrderStatus.outForDelivery &&
+        orderProvider.watchedOrderId != widget.orderId) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _orders.watchOrder(widget.orderId);
+      });
+    }
+
     final vendor = context.watch<VendorProvider>().vendorById(order.vendorId);
 
     // Pickup skips the rider flow entirely and uses its own labels
@@ -162,238 +232,374 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          if (order.status == OrderStatus.cancelled)
-            Card(
-              color: AppColors.danger.withValues(alpha: 0.06),
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Row(
-                  children: [
-                    const Icon(Icons.cancel, color: AppColors.danger),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(order.cancellationReason.isEmpty
-                          ? 'This order was cancelled.'
-                          : 'This order was cancelled — ${order.cancellationReason}'),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          else ...[
-            ClipRRect(
-              borderRadius: BorderRadius.circular(AppRadius.lg),
-              child: SizedBox(
-                height: 200,
-                child: Stack(
-                  children: [
-                    // Live tracking map: the rider's position (relayed
-                    // from the vendor app's GPS pings) against the
-                    // customer's own delivery pin. Orders without pinned
-                    // coordinates fall back to the status-only box.
-                    if (order.fulfillmentType != FulfillmentType.pickup &&
-                        order.destinationLat != null &&
-                        order.destinationLng != null)
-                      TrackingMap(
-                        destination: LatLng(order.destinationLat!, order.destinationLng!),
-                        rider: orderProvider.riderLat != null && orderProvider.riderLng != null
-                            ? LatLng(orderProvider.riderLat!, orderProvider.riderLng!)
-                            : null,
-                        height: 200,
-                      )
-                    else
-                      Container(
-                        width: double.infinity,
-                        color: AppColors.surfaceMuted,
-                        child: const Icon(Icons.map_outlined,
-                            size: 48, color: AppColors.textSecondary),
-                      ),
-                    if (order.status == OrderStatus.outForDelivery)
-                      Positioned(
-                        bottom: 12,
-                        left: 12,
-                        right: 12,
-                        child: GestureDetector(
-                          onTap: orderProvider.trackingError != null
-                              ? () => orderProvider.watchOrder(order.id)
-                              : null,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: orderProvider.trackingError != null
-                                  ? AppColors.warning
-                                  : AppColors.primary,
-                              borderRadius: BorderRadius.circular(AppRadius.pill),
-                            ),
-                            child: Text(
-                              orderProvider.trackingError ??
-                                  (orderProvider.riderLat != null
-                                      ? 'Your rider is on the way — follow them on the map'
-                                      : 'Your order is on the way — waiting for the rider\u2019s first location ping'),
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600),
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Text(order.vendorName,
-                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
-                ),
-                StatusBadge(status: order.status),
-              ],
-            ),
-            const SizedBox(height: 16),
-            for (int i = 0; i < allSteps.length; i++)
-              _StepRow(
-                label: stepLabel(allSteps[i]),
-                isDone: i <= currentIndex,
-                isLast: i == allSteps.length - 1,
-              ),
-            const SizedBox(height: 20),
-          ],
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Order Details', style: TextStyle(fontWeight: FontWeight.w700)),
-                  const SizedBox(height: 10),
-                  ...order.items.map((i) => Padding(
-                        padding: const EdgeInsets.only(bottom: 6),
-                        child: Row(
-                          children: [
-                            Text('${i.quantity}x ', style: const TextStyle(color: AppColors.textSecondary)),
-                            Expanded(child: Text(i.foodName)),
-                            Text('₱${i.subtotal.toStringAsFixed(0)}'),
-                          ],
-                        ),
-                      )),
-                  const Divider(),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      // Status can change at any moment — pull-to-refresh mirrors the
+      // 12-second poll so the customer can force an update on demand.
+      body: RefreshIndicator(
+        onRefresh: _manualRefresh,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16),
+          children: [
+            if (order.status == OrderStatus.cancelled)
+              Card(
+                color: AppColors.danger.withValues(alpha: 0.06),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Row(
                     children: [
-                      const Text('Total', style: TextStyle(fontWeight: FontWeight.w800)),
-                      Text('₱${order.grandTotal.toStringAsFixed(0)}',
-                          style: const TextStyle(fontWeight: FontWeight.w800)),
+                      const Icon(Icons.cancel, color: AppColors.danger),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(order.cancellationReason.isEmpty
+                            ? 'This order was cancelled.'
+                            : 'This order was cancelled — ${order.cancellationReason}'),
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 10),
-                  if (order.scheduledFor != null)
+                ),
+              )
+            else ...[
+              _trackingArea(order, orderProvider, vendor),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(order.vendorName,
+                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+                  ),
+                  StatusBadge(status: order.status),
+                ],
+              ),
+              const SizedBox(height: 16),
+              for (int i = 0; i < allSteps.length; i++)
+                _StepRow(
+                  label: stepLabel(allSteps[i]),
+                  isDone: i <= currentIndex,
+                  isLast: i == allSteps.length - 1,
+                ),
+              const SizedBox(height: 20),
+            ],
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Order Details', style: TextStyle(fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 10),
+                    ...order.items.map((i) => Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Text('${i.quantity}x ',
+                                      style: const TextStyle(color: AppColors.textSecondary)),
+                                  Expanded(child: Text(i.foodName)),
+                                  Text('₱${i.subtotal.toStringAsFixed(0)}'),
+                                ],
+                              ),
+                              // Selected add-ons, so the line/total visibly
+                              // include their price contribution.
+                              ...i.optionLabels.map(
+                                (label) => Padding(
+                                  padding: const EdgeInsets.only(left: 24, top: 2),
+                                  child: Text('• $label',
+                                      style: const TextStyle(
+                                          fontSize: 12, color: AppColors.textSecondary)),
+                                ),
+                              ),
+                            ],
+                          ),
+                        )),
+                    const Divider(),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Total', style: TextStyle(fontWeight: FontWeight.w800)),
+                        Text('₱${order.grandTotal.toStringAsFixed(0)}',
+                            style: const TextStyle(fontWeight: FontWeight.w800)),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    if (order.scheduledFor != null)
+                      Text(
+                        'Scheduled for ${order.scheduledFor!.toLocal()}'.split('.').first,
+                        style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                      ),
                     Text(
-                      'Scheduled for ${order.scheduledFor!.toLocal()}'.split('.').first,
+                      order.fulfillmentType == FulfillmentType.pickup
+                          ? 'Pickup at ${vendor?.address ?? order.deliveryAddress}'
+                          : 'Deliver to ${order.deliveryAddress}',
                       style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
                     ),
-                  Text(
-                    order.fulfillmentType == FulfillmentType.pickup
-                        ? 'Pickup at ${vendor?.address ?? order.deliveryAddress}'
-                        : 'Deliver to ${order.deliveryAddress}',
-                    style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
-                  ),
-                  Text('Payment: ${order.paymentMethod.label}',
-                      style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-                ],
+                    Text('Payment: ${order.paymentMethod.label}',
+                        style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                  ],
+                ),
               ),
             ),
-          ),
-          if (order.isActive && order.status != OrderStatus.outForDelivery) ...[
-            const SizedBox(height: 16),
-            OutlinedButton(
-              onPressed: () => _cancelOrder(order),
-              style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger),
-              child: const Text('Cancel Order'),
-            ),
-          ],
-          // Rate the order once it's done — one review per completed order.
-          if ((order.status == OrderStatus.delivered ||
-                  order.status == OrderStatus.completed) &&
-              _alreadyReviewed == false)
-            Padding(
-              padding: const EdgeInsets.only(top: 16),
-              child: ElevatedButton.icon(
-                onPressed: () => _leaveReview(order),
-                icon: const Icon(Icons.star_rounded),
-                label: const Text('Rate this order'),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _leaveReview(CustomerOrder order) async {
-    int stars = 5;
-    final commentController = TextEditingController();
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          title: Text('Rate ${order.vendorName}'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  for (int i = 1; i <= 5; i++)
-                    IconButton(
-                      icon: Icon(
-                        i <= stars ? Icons.star_rounded : Icons.star_outline_rounded,
-                        color: AppColors.warning,
-                        size: 34,
-                      ),
-                      onPressed: () => setDialogState(() => stars = i),
-                    ),
-                ],
-              ),
-              TextField(
-                controller: commentController,
-                maxLines: 3,
-                maxLength: 500,
-                decoration:
-                    const InputDecoration(hintText: 'Share your experience (optional)'),
+            if (order.isActive && order.status != OrderStatus.outForDelivery) ...[
+              const SizedBox(height: 16),
+              OutlinedButton(
+                onPressed: () => _cancelOrder(order),
+                style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger),
+                child: const Text('Cancel Order'),
               ),
             ],
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('Submit Review'),
-            ),
+            // Rate the order once it's done — one review per completed
+            // order. After submitting (or when it was already reviewed)
+            // the stored review is shown here.
+            if (order.status == OrderStatus.delivered ||
+                order.status == OrderStatus.completed) ...[
+              if (_alreadyReviewed == true && _myReview != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 16),
+                  child: _ReviewCard(review: _myReview!),
+                )
+              else if (_alreadyReviewed == false)
+                Padding(
+                  padding: const EdgeInsets.only(top: 16),
+                  child: ElevatedButton.icon(
+                    onPressed: () => _rateOrder(order),
+                    icon: const Icon(Icons.star_rounded),
+                    label: const Text('Rate this order'),
+                  ),
+                ),
+            ],
           ],
         ),
       ),
     );
-    commentController.dispose();
-    if (confirmed != true || !mounted) return;
+  }
 
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      await _orders.submitReview(order.id, stars: stars, comment: commentController.text);
-      if (!mounted) return;
-      setState(() => _alreadyReviewed = true);
-      messenger.showSnackBar(const SnackBar(content: Text('Thanks for your review!')));
-    } on ApiException catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text(e.message)));
-    } catch (_) {
-      messenger.showSnackBar(const SnackBar(content: Text('Could not submit your review — try again')));
+  /// What sits at the top of the tracking screen:
+  ///  - out_for_delivery (delivery orders): ALWAYS a real map — the
+  ///    destination pin when its coordinates are known, the rider marker
+  ///    once GPS pings arrive, and a "waiting for the rider's location"
+  ///    pill before the first ping. Never a blank/missing map.
+  ///  - other active statuses (pending → ready): a clear status panel,
+  ///    since there is nothing live to map yet.
+  ///  - delivered/completed: a quiet destination-pin map when coords exist.
+  Widget _trackingArea(
+      CustomerOrder order, OrderProvider provider, VendorProfile? vendor) {
+    final hasDestination =
+        order.destinationLat != null && order.destinationLng != null;
+    final destination =
+        hasDestination ? LatLng(order.destinationLat!, order.destinationLng!) : null;
+    final isLive = order.status == OrderStatus.outForDelivery &&
+        order.fulfillmentType != FulfillmentType.pickup;
+
+    if (!isLive && destination == null) {
+      return _StatusPanel(order: order);
     }
+
+    final rider = provider.riderLat != null && provider.riderLng != null
+        ? LatLng(provider.riderLat!, provider.riderLng!)
+        : null;
+    // Destination coords can be missing (address without pinned
+    // coordinates) — center on the store instead so the map still renders
+    // meaningful tiles rather than an empty frame.
+    final fallbackCenter = (vendor != null &&
+            (vendor.latitude != 0 || vendor.longitude != 0))
+        ? LatLng(vendor.latitude, vendor.longitude)
+        : null;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(AppRadius.lg),
+      child: SizedBox(
+        height: 200,
+        child: Stack(
+          children: [
+            TrackingMap(
+              destination: destination,
+              rider: rider,
+              fallbackCenter: fallbackCenter,
+              height: 200,
+            ),
+            if (isLive)
+              Positioned(
+                bottom: 12,
+                left: 12,
+                right: 12,
+                child: GestureDetector(
+                  onTap: provider.trackingError != null
+                      ? () => provider.watchOrder(order.id)
+                      : null,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: provider.trackingError != null
+                          ? AppColors.warning
+                          : AppColors.primary,
+                      borderRadius: BorderRadius.circular(AppRadius.pill),
+                    ),
+                    child: Text(
+                      provider.trackingError ??
+                          (rider != null
+                              ? 'Your rider is on the way — follow them on the map'
+                              : 'Waiting for the rider\u2019s first location ping'),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Clear, non-map status view shown while the order is being fulfilled
+/// but no rider is on the road yet (and for finished orders without
+/// pinned coordinates) — replaces the old grey map-icon placeholder.
+class _StatusPanel extends StatelessWidget {
+  final CustomerOrder order;
+  const _StatusPanel({required this.order});
+
+  IconData get _icon {
+    switch (order.status) {
+      case OrderStatus.pending:
+        return Icons.hourglass_top;
+      case OrderStatus.accepted:
+        return Icons.check_circle_outline;
+      case OrderStatus.preparing:
+        return Icons.restaurant;
+      case OrderStatus.ready:
+        return Icons.shopping_bag_outlined;
+      case OrderStatus.outForDelivery:
+        return Icons.delivery_dining;
+      case OrderStatus.delivered:
+      case OrderStatus.completed:
+        return Icons.check_circle;
+      case OrderStatus.cancelled:
+        return Icons.cancel;
+    }
+  }
+
+  String get _title {
+    switch (order.status) {
+      case OrderStatus.pending:
+        return 'Waiting for the store';
+      case OrderStatus.accepted:
+        return 'Order accepted';
+      case OrderStatus.preparing:
+        return 'Preparing your order';
+      case OrderStatus.ready:
+        return order.fulfillmentType == FulfillmentType.pickup
+            ? 'Ready for pickup'
+            : 'Ready — waiting for a rider';
+      case OrderStatus.outForDelivery:
+        return 'On its way';
+      case OrderStatus.delivered:
+        return 'Delivered';
+      case OrderStatus.completed:
+        return 'Order completed';
+      case OrderStatus.cancelled:
+        return 'Cancelled';
+    }
+  }
+
+  String get _subtitle {
+    switch (order.status) {
+      case OrderStatus.pending:
+        return 'The store will confirm your order shortly.';
+      case OrderStatus.accepted:
+        return 'The store accepted your order — preparation starts next.';
+      case OrderStatus.preparing:
+        return 'The store is cooking your order right now.';
+      case OrderStatus.ready:
+        return order.fulfillmentType == FulfillmentType.pickup
+            ? 'Head to the store when you are ready.'
+            : 'Waiting for a rider to pick it up — live tracking starts then.';
+      case OrderStatus.outForDelivery:
+        return 'Your order is out for delivery.';
+      case OrderStatus.delivered:
+      case OrderStatus.completed:
+        return 'We hope you enjoyed it — rate the store below.';
+      case OrderStatus.cancelled:
+        return 'This order was cancelled.';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 20),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceMuted,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+      ),
+      child: Column(
+        children: [
+          Icon(_icon, size: 44, color: AppColors.primary),
+          const SizedBox(height: 12),
+          Text(_title,
+              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+              textAlign: TextAlign.center),
+          const SizedBox(height: 4),
+          Text(
+            _subtitle,
+            style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The customer's stored review, shown after the order is rated.
+class _ReviewCard extends StatelessWidget {
+  final OrderReview review;
+  const _ReviewCard({required this.review});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Your review', style: TextStyle(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                for (int i = 1; i <= 5; i++)
+                  Icon(
+                    i <= review.stars
+                        ? Icons.star_rounded
+                        : Icons.star_outline_rounded,
+                    color: AppColors.warning,
+                    size: 22,
+                  ),
+              ],
+            ),
+            if (review.comment.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(review.comment, style: const TextStyle(fontSize: 13.5)),
+            ],
+            if (review.vendorResponse != null && review.vendorResponse!.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text('Store reply: ${review.vendorResponse}',
+                  style: const TextStyle(
+                      fontSize: 12.5,
+                      color: AppColors.textSecondary,
+                      fontStyle: FontStyle.italic)),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 }
 

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../providers/auth_provider.dart';
+import '../../services/api_client.dart';
+import '../../services/auth_api_service.dart';
 import '../../theme/app_theme.dart';
 import 'change_password_screen.dart';
 import 'verify_email_change_screen.dart';
@@ -160,10 +162,32 @@ class _EditFieldDialogState extends State<_EditFieldDialog> {
     final value = _ctrl.text.trim();
     if (value.isEmpty) return;
     setState(() => _saving = true);
+    // Captured before any await: after a successful pop the dialog's own
+    // context may no longer be valid for MediaQuery/scaffold lookups.
     final messenger = ScaffoldMessenger.of(context);
-    Navigator.of(context).pop();
-    await widget.save(value);
-    messenger.showSnackBar(SnackBar(content: Text('${widget.title} — saved')));
+    try {
+      await widget.save(value);
+      if (!mounted) return;
+      // Only pop if the dialog is still the top route — the barrier can
+      // dismiss it while a slow request is in flight.
+      if (ModalRoute.of(context)?.isCurrent ?? false) {
+        Navigator.of(context).pop();
+      }
+      messenger.showSnackBar(SnackBar(content: Text('${widget.title} — saved')));
+    } catch (error) {
+      // The save failed (server rejected/offline): keep the dialog open
+      // with the typed value and say what went wrong — never report a
+      // save that didn't happen.
+      if (!mounted) return;
+      setState(() => _saving = false);
+      messenger.showSnackBar(SnackBar(content: Text(_errorMessage(error))));
+    }
+  }
+
+  String _errorMessage(Object error) {
+    if (error is AuthException) return error.message;
+    if (error is ApiException) return error.message;
+    return 'Could not save your changes — please try again';
   }
 
   @override

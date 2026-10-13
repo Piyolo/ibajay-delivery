@@ -7,6 +7,7 @@ import '../../providers/vendor_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/common.dart';
 import '../../widgets/status_badge.dart';
+import '../settings/store_status_screen.dart';
 import 'order_detail_screen.dart';
 
 class OrdersDashboardScreen extends StatefulWidget {
@@ -20,6 +21,11 @@ class _OrdersDashboardScreenState extends State<OrdersDashboardScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
 
+  // True while a pull-to-refresh is running, so the full-screen first-load
+  // spinner doesn't replace the lists (and kill the refresh indicator)
+  // when the inbox is empty and the user pulls to refresh.
+  bool _refreshing = false;
+
   @override
   void initState() {
     super.initState();
@@ -30,6 +36,15 @@ class _OrdersDashboardScreenState extends State<OrdersDashboardScreen>
   void dispose() {
     _tabController.dispose();
     super.dispose();
+  }
+
+  Future<void> _refreshOrders() async {
+    setState(() => _refreshing = true);
+    try {
+      await context.read<OrderProvider>().load();
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
   }
 
   @override
@@ -45,11 +60,14 @@ class _OrdersDashboardScreenState extends State<OrdersDashboardScreen>
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: Center(
-              child: AppPillToggle(
-                value: vendor.isOpen,
-                activeLabel: 'Open',
-                inactiveLabel: 'Closed',
-                onChanged: (v) => context.read<VendorProvider>().toggleStoreOpen(v),
+              // Same behavior as the Dashboard: tapping the status pill
+              // opens the Store Status options screen instead of instantly
+              // flipping open/closed.
+              child: StoreStatusPill(
+                status: vendor.status,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const StoreStatusScreen()),
+                ),
               ),
             ),
           ),
@@ -68,15 +86,31 @@ class _OrdersDashboardScreenState extends State<OrdersDashboardScreen>
           ],
         ),
       ),
-      body: loading && orders.all.isEmpty
+      body: loading && orders.all.isEmpty && !_refreshing
           ? const Center(child: CircularProgressIndicator())
           : TabBarView(
               controller: _tabController,
               children: [
-                _OrderList(orders: orders.newOrders, emptyLabel: 'No new orders right now.'),
-                _OrderList(orders: orders.preparingOrders, emptyLabel: 'Nothing being prepared.'),
-                _OrderList(orders: orders.outForDelivery, emptyLabel: 'No deliveries in progress.'),
-                _OrderList(orders: orders.history, emptyLabel: 'No completed orders yet.'),
+                _OrderList(
+                  orders: orders.newOrders,
+                  emptyLabel: 'No new orders right now.',
+                  onRefresh: _refreshOrders,
+                ),
+                _OrderList(
+                  orders: orders.preparingOrders,
+                  emptyLabel: 'Nothing being prepared.',
+                  onRefresh: _refreshOrders,
+                ),
+                _OrderList(
+                  orders: orders.outForDelivery,
+                  emptyLabel: 'No deliveries in progress.',
+                  onRefresh: _refreshOrders,
+                ),
+                _OrderList(
+                  orders: orders.history,
+                  emptyLabel: 'No completed orders yet.',
+                  onRefresh: _refreshOrders,
+                ),
               ],
             ),
     );
@@ -86,22 +120,29 @@ class _OrdersDashboardScreenState extends State<OrdersDashboardScreen>
 class _OrderList extends StatelessWidget {
   final List<VendorOrder> orders;
   final String emptyLabel;
-  const _OrderList({required this.orders, required this.emptyLabel});
+  final Future<void> Function() onRefresh;
+  const _OrderList({required this.orders, required this.emptyLabel, required this.onRefresh});
 
   @override
   Widget build(BuildContext context) {
-    if (orders.isEmpty) {
-      return EmptyState(
-        icon: Icons.inbox_outlined,
-        title: 'Nothing here yet',
-        subtitle: emptyLabel,
-      );
-    }
-    return ListView.separated(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      itemCount: orders.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
-      itemBuilder: (context, i) => _OrderCard(order: orders[i]),
+    return RefreshIndicator(
+      onRefresh: onRefresh,
+      child: orders.isEmpty
+          ? ListView(
+              children: [
+                EmptyState(
+                  icon: Icons.inbox_outlined,
+                  title: 'Nothing here yet',
+                  subtitle: emptyLabel,
+                ),
+              ],
+            )
+          : ListView.separated(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              itemCount: orders.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 10),
+              itemBuilder: (context, i) => _OrderCard(order: orders[i]),
+            ),
     );
   }
 }

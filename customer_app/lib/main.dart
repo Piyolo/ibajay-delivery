@@ -6,6 +6,7 @@ import 'providers/cart_provider.dart';
 import 'providers/chat_provider.dart';
 import 'providers/favorites_provider.dart';
 import 'providers/location_provider.dart';
+import 'providers/notification_provider.dart';
 import 'providers/order_provider.dart';
 import 'providers/vendor_provider.dart';
 import 'screens/auth/landing_screen.dart';
@@ -40,6 +41,7 @@ class _IbajayEatsAppState extends State<IbajayEatsApp> {
   late final CartProvider _cart;
   late final FavoritesProvider _favorites;
   late final AppPreferencesProvider _prefs;
+  late final NotificationProvider _notifications;
   late final List<ChangeNotifier> _notifiers;
 
   @override
@@ -59,7 +61,15 @@ class _IbajayEatsAppState extends State<IbajayEatsApp> {
     _cart = CartProvider();
     _favorites = FavoritesProvider();
     _prefs = AppPreferencesProvider();
-    _notifiers = [_auth, _location, _vendors, _orders, _chat, _cart, _favorites, _prefs];
+    // Shares the auth client so /notifications carries the session token.
+    _notifications = NotificationProvider(apiClient: _auth.client);
+    // Order status changes push new notifications server-side — refresh
+    // the bell whenever a status actually changes (see OrderProvider).
+    _orders.onOrdersChanged = _notifications.refresh;
+    _notifiers = [
+      _auth, _location, _vendors, _orders, _chat, _cart, _favorites, _prefs,
+      _notifications,
+    ];
 
     // Once a session exists (fresh login or restored), pull the saved
     // address book from the backend so checkout has real address IDs.
@@ -73,10 +83,12 @@ class _IbajayEatsAppState extends State<IbajayEatsApp> {
       final uid = _auth.currentUser!.id;
       _location.attachUser(uid);
       _favorites.attachUser(uid);
+      _notifications.attachUser(uid);
       _orders.loadOrders();
     } else if (_auth.status == AuthStatus.signedOut) {
       _location.detachUser();
       _favorites.detachUser();
+      _notifications.detachUser();
       _orders.stopWatching();
       // Cart and conversations belong to the account too.
       _cart.clear();
@@ -115,6 +127,7 @@ class _IbajayEatsAppState extends State<IbajayEatsApp> {
         ChangeNotifierProvider.value(value: _cart),
         ChangeNotifierProvider.value(value: _favorites),
         ChangeNotifierProvider.value(value: _prefs),
+        ChangeNotifierProvider.value(value: _notifications),
       ],
       child: MaterialApp(
         title: 'Ibajay Eats',

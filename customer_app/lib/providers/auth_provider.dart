@@ -21,8 +21,8 @@ enum _PendingFlow { registration, passwordReset }
 /// If the backend is unreachable, the cached profile keeps the session
 /// alive so the app still works offline.
 ///
-/// Profile edits and email change remain local-only for now — the backend
-/// has no user-profile update endpoints yet (next slice).
+/// Profile name changes persist via `PUT /auth/profile`; email and mobile
+/// edits remain local-only until the backend gains those endpoints.
 class AuthProvider extends ChangeNotifier {
   factory AuthProvider({ApiClient? apiClient, AuthApiService? apiService}) {
     final client = apiClient ?? ApiClient();
@@ -309,15 +309,39 @@ class AuthProvider extends ChangeNotifier {
     _pendingNewEmail = null;
   }
 
-  /// Profile edits from the Settings screen. Local-only until the backend
-  /// gains a profile-update endpoint (persisted to the cached session).
+  /// Profile edits from the Settings screen.
+  ///
+  /// A name change is persisted server-side via `PUT /auth/profile` and
+  /// the returned profile (same shape as `/auth/me`) replaces the local
+  /// one — saving locally only meant a re-login restored the old name.
+  /// Throws [AuthException] when the request fails so the UI can show the
+  /// error instead of reporting a save that didn't happen. Email/mobile
+  /// changes remain local-only (no backend endpoint yet).
   Future<void> updateProfile({
     String? fullName,
     String? email,
     String? mobileNumber,
   }) async {
     if (currentUser == null) return;
-    if (fullName != null && fullName.trim().isNotEmpty) currentUser!.fullName = fullName.trim();
+
+    if (fullName != null && fullName.trim().isNotEmpty) {
+      final trimmed = fullName.trim();
+      if (trimmed.length < 2) {
+        throw AuthException('Name must be at least 2 characters');
+      }
+      // Server write first: if it fails we throw and nothing changes
+      // locally, so the UI never shows a name the backend rejected.
+      final profile = await api.updateFullName(trimmed);
+      currentUser!.fullName = profile['full_name'] as String? ?? trimmed;
+      final serverMobile = profile['mobile_number'] as String?;
+      if (serverMobile != null && serverMobile.isNotEmpty) {
+        currentUser!.mobileNumber = serverMobile;
+      }
+      final serverEmail = profile['email'] as String?;
+      if (serverEmail != null && serverEmail.isNotEmpty) {
+        currentUser!.email = serverEmail;
+      }
+    }
     if (email != null && email.trim().isNotEmpty) currentUser!.email = email.trim();
     if (mobileNumber != null && mobileNumber.trim().isNotEmpty) {
       currentUser!.mobileNumber = mobileNumber.trim();

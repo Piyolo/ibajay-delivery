@@ -69,9 +69,16 @@ async def register_start(payload: RegisterStart, db: AsyncSession = Depends(get_
         expires_at=datetime.now(timezone.utc) + timedelta(minutes=settings.OTP_EXPIRE_MINUTES),
     )
     db.add(verification)
+    # Send BEFORE committing the row: if delivery fails, services/email.py
+    # logs the failure and raises 502, we roll the pending OTP row back
+    # (a code the customer never received is never left in the DB), and the
+    # client gets an error instead of a false "OTP sent" success message.
+    try:
+        await send_otp_email(payload.email, otp_code, purpose="registration")
+    except Exception:
+        await db.rollback()
+        raise
     await db.commit()
-
-    await send_otp_email(payload.email, otp_code, purpose="registration")
     return {"message": "OTP sent to your email", "email": payload.email}
 
 
@@ -232,9 +239,15 @@ async def forgot_password_start(payload: ForgotPasswordStart, db: AsyncSession =
         expires_at=datetime.now(timezone.utc) + timedelta(minutes=settings.OTP_EXPIRE_MINUTES),
     )
     db.add(verification)
+    # Same ordering as register_start: never commit an OTP row for an email
+    # that failed to send — roll back and let the 502 from services/email.py
+    # reach the client.
+    try:
+        await send_otp_email(payload.email, otp_code, purpose="password_reset")
+    except Exception:
+        await db.rollback()
+        raise
     await db.commit()
-
-    await send_otp_email(payload.email, otp_code, purpose="password_reset")
     return {"message": "If that email is registered, a code has been sent."}
 
 
@@ -286,6 +299,40 @@ class MeOut(BaseModel):
 
 @router.get("/me", response_model=MeOut)
 async def get_me(current_user: User = Depends(get_current_user)):
+    return MeOut(
+        id=str(current_user.id),
+        full_name=current_user.full_name,
+        mobile_number=current_user.mobile_number,
+        email=current_user.email,
+        role=current_user.role.value,
+        is_email_verified=current_user.is_email_verified,
+    )
+
+
+class ProfileUpdate(BaseModel):
+    full_name: str
+
+    @field_validator("full_name")
+    @classmethod
+    def validate_full_name(cls, v: str) -> str:
+        cleaned = v.strip()
+        if len(cleaned) < 2:
+            raise ValueError("Name must be at least 2 characters")
+        if len(cleaned) > 150:
+            raise ValueError("Name must be at most 150 characters")  # users.full_name is VARCHAR(150)
+        return cleaned
+
+
+@router.put("/profile", response_model=MeOut)
+async def update_profile(
+    payload: ProfileUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Persists a name change to the users table so it survives re-login
+    (the beta bug: the apps only ever mutated local state)."""
+    current_user.full_name = payload.full_name
+    await db.commit()
     return MeOut(
         id=str(current_user.id),
         full_name=current_user.full_name,

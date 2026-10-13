@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 from app.core.db import get_db
 from app.core.deps import get_current_user, require_customer, require_vendor
 from app.models.enums import DeliveryMethod, OrderStatus
-from app.models.food import FoodItem
+from app.models.food import FoodItem, FoodOption, FoodOptionChoice
 from app.models.order import Order, OrderItem, OrderStatusHistory
 from app.models.social import Promotion
 from app.models.user import Address, User
@@ -85,6 +85,40 @@ async def _validate_promotion(
     return promo, None
 
 
+async def _selected_options_price(
+    db: AsyncSession, food_item_id: uuid.UUID, selected_options: dict[str, list[str]]
+) -> float:
+    """Sums the server-stored `extra_price` of every selected choice for one
+    cart line (the add-on bug: these were previously skipped entirely).
+
+    Prices come only from this food item's `food_option_choices` rows —
+    client payloads carry labels, never prices, so unknown labels simply
+    contribute 0. Lookup is by (group_name, label); a label-only fallback
+    covers clients that send a different group key.
+    """
+    if not selected_options:
+        return 0.0
+
+    rows = (
+        await db.execute(
+            select(FoodOption.group_name, FoodOptionChoice.label, FoodOptionChoice.extra_price)
+            .join(FoodOptionChoice, FoodOptionChoice.option_id == FoodOption.id)
+            .where(FoodOption.food_item_id == food_item_id)
+        )
+    ).all()
+    by_group_label = {(group, label): float(price) for group, label, price in rows}
+    by_label = {label: float(price) for _, label, price in rows}
+
+    total = 0.0
+    for group, labels in selected_options.items():
+        for label in labels or []:
+            if (group, label) in by_group_label:
+                total += by_group_label[(group, label)]
+            else:
+                total += by_label.get(label, 0.0)
+    return round(total, 2)
+
+
 @router.post("/checkout", response_model=OrderOut, status_code=status.HTTP_201_CREATED)
 async def checkout(
     payload: CheckoutRequest,
@@ -147,17 +181,20 @@ async def checkout(
         if not food_item or not food_item.is_available:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Item unavailable: {cart_item.food_item_id}")
 
-        # NOTE: extra_price per selected choice would normally be looked up here
-        # via FoodOptionChoice; omitted for brevity but is a straightforward
-        # join against selected_options labels.
-        line_total = float(food_item.price) * cart_item.quantity
-        subtotal += line_total
+        # Add-on prices: look up each selected choice's extra_price from
+        # FoodOptionChoice (server-side only — never trust client prices)
+        # and fold it into the per-unit cost, so unit_price * quantity ==
+        # line_total on every consumer (customer app, vendor app, admin).
+        addons = await _selected_options_price(db, food_item.id, cart_item.selected_options)
+        unit_price = round(float(food_item.price) + addons, 2)
+        line_total = round(unit_price * cart_item.quantity, 2)
+        subtotal = round(subtotal + line_total, 2)
 
         order_items.append(
             OrderItem(
                 food_item_id=food_item.id,
                 item_name=food_item.name,
-                unit_price=float(food_item.price),
+                unit_price=unit_price,
                 quantity=cart_item.quantity,
                 selected_options=cart_item.selected_options,
                 line_total=line_total,
@@ -174,7 +211,7 @@ async def checkout(
             raise HTTPException(status.HTTP_400_BAD_REQUEST, error or "Invalid promo code")
         discount = _promo_discount(promotion, subtotal)
 
-    total = max(0.0, subtotal + delivery_fee - discount)
+    total = round(max(0.0, subtotal + delivery_fee - discount), 2)
     order = Order(
         order_number=_generate_order_number(),
         customer_id=user.id,
@@ -202,7 +239,7 @@ async def checkout(
     await db.commit()
     await db.refresh(order, attribute_names=["items"])
 
-    await notify_order_event(vendor.owner_id, order, event="new_order")
+    await notify_order_event(db, vendor.owner_id, order, event="new_order")
     return order
 
 
@@ -332,7 +369,9 @@ async def update_order_status(
     await db.commit()
     await db.refresh(order, attribute_names=["items"])
 
-    await notify_order_event(order.customer_id, order, event=payload.status.value)
+    # Customer-facing statuses are persisted by notify_order_event; events
+    # without a mapping (ready/completed) are intentionally left silent.
+    await notify_order_event(db, order.customer_id, order, event=payload.status.value)
 
     # Push the status change to anyone subscribed to this order's tracking channel
     await connection_manager.broadcast_to_order(
@@ -372,4 +411,9 @@ async def cancel_order(
     await connection_manager.broadcast_to_order(
         order.id, {"type": "status_update", "order_id": str(order.id), "status": "cancelled"}
     )
+
+    # Tell whichever party didn't cancel: vendor cancels -> customer hears
+    # about it, customer cancels -> the vendor's inbox needs the update.
+    recipient = order.customer_id if is_owner_vendor else vendor.owner_id
+    await notify_order_event(db, recipient, order, event="cancelled")
     return order

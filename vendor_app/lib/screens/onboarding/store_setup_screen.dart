@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../models/vendor.dart';
 import '../../providers/vendor_provider.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/barangay_selector.dart';
 import '../../widgets/osm_location_picker.dart';
 import '../main_shell.dart';
 
@@ -547,45 +548,13 @@ class _StoreSetupScreenState extends State<StoreSetupScreen> {
           ),
         if (showDeliveryAreas) ...[
           const SizedBox(height: 16),
-          Row(
-            children: [
-              const Expanded(
-                child: Text('Delivery Areas', style: TextStyle(fontWeight: FontWeight.w700)),
-              ),
-              Text(
-                '${_delivery.deliveryBarangays.length} of ${kIbajayBarangays.length} selected',
-                style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            'Pick which barangays in Ibajay you can deliver to — you can adjust this later in Delivery Settings.',
-            style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: kIbajayBarangays.map((b) {
-              final selected = _delivery.deliveryBarangays.contains(b);
-              return FilterChip(
-                label: Text(b),
-                selected: selected,
-                onSelected: (_) => setState(() {
-                  selected
-                      ? _delivery.deliveryBarangays.remove(b)
-                      : _delivery.deliveryBarangays.add(b);
-                }),
-                selectedColor: AppColors.primary.withValues(alpha: 0.15),
-                checkmarkColor: AppColors.primary,
-                labelStyle: TextStyle(
-                  color: selected ? AppColors.primary : AppColors.textPrimary,
-                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                  fontSize: 12.5,
-                ),
-              );
-            }).toList(),
+          // Same picker as the logged-in Delivery Settings screen (search +
+          // All/None) — the old chip wrap forced tapping every barangay.
+          BarangaySelector(
+            description:
+                'Pick which barangays in Ibajay you can deliver to — you can adjust this later in Delivery Settings.',
+            selected: _delivery.deliveryBarangays,
+            onChanged: (list) => setState(() => _delivery.deliveryBarangays = list),
           ),
         ],
       ],

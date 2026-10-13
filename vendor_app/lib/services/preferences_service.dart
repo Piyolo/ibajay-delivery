@@ -40,4 +40,9 @@ class PreferencesService {
   static const kOwnerMobile = 'vendor.owner_mobile';
   static const kSetupDone = 'vendor.setup_done';
   static const kProfile = 'vendor.profile';
+
+  /// App version that created the stored session. A mismatch on restore
+  /// (i.e. the app was updated) forces a fresh login so stale tokens can
+  /// never leave the app in a half-logged-in state.
+  static const kSessionAppVersion = 'vendor.session_app_version';
 }

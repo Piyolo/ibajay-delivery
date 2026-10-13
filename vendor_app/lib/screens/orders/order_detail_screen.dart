@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import '../../models/order.dart';
 import '../../providers/chat_provider.dart';
 import '../../providers/order_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/status_badge.dart';
+import '../../widgets/tracking_map.dart';
 import '../chat/chat_screen.dart';
 import 'delivery_tracking_screen.dart';
 
@@ -119,6 +121,25 @@ class OrderDetailScreen extends StatelessWidget {
                       ),
                     ],
                   ),
+                  // The customer's pinned delivery location (stamped on
+                  // the order from their saved address) — shows the vendor
+                  // exactly where to deliver, not just a text address.
+                  if (order.customerLat != null && order.customerLng != null) ...[
+                    const SizedBox(height: 10),
+                    TrackingMap(
+                      destination: LatLng(order.customerLat!, order.customerLng!),
+                      height: 160,
+                    ),
+                    const SizedBox(height: 6),
+                    const Row(
+                      children: [
+                        Icon(Icons.near_me_outlined, size: 12, color: AppColors.textSecondary),
+                        SizedBox(width: 4),
+                        Text('Delivery location pinned by the customer',
+                            style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),

@@ -3,6 +3,7 @@
 #
 # Env vars marked `sync: false` must be filled in the Render dashboard on first deploy:
 #   DATABASE_URL           — Neon connection string
+#   JWT_SECRET_KEY         — JWT signing secret; set it once, back it up, never rotate it
 #   RESEND_API_KEY         — Resend API key (for waitlist + OTP emails)
 #   WAITLIST_NOTIFY_EMAIL  — your email for signup alerts
 
@@ -21,7 +22,10 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: JWT_SECRET_KEY
-        generateValue: true
+        # Set/back up this value manually in the Render dashboard. NEVER
+        # rotate it: every JWT is signed with it, so rotating signs out all
+        # users (and their refresh tokens) instantly.
+        sync: false
       - key: ENVIRONMENT
         value: production
       - key: RESEND_API_KEY

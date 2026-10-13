@@ -62,6 +62,11 @@ async def push_gps_ping(
     order = order_result.scalar_one_or_none()
     if not order:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Order not found")
+
+    vendor_result = await db.execute(select(Vendor).where(Vendor.id == order.vendor_id))
+    vendor = vendor_result.scalar_one_or_none()
+    if not vendor or vendor.owner_id != user.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not your store's order")
     if order.status != OrderStatus.out_for_delivery:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Order is not currently out for delivery")
 

@@ -39,6 +39,16 @@ async def get_current_user(
     user = result.scalar_one_or_none()
     if not user or not user.is_active:
         raise credentials_error
+
+    # Revocation: replacing a password bumps user.token_version, so any
+    # token minted before that no longer matches. A missing `tv` claim
+    # (tokens issued before this feature deployed) is rejected as well.
+    if payload.get("tv") != user.token_version:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has been revoked",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return user
 
 

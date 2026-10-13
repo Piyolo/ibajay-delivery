@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../models/user.dart';
 import '../services/api_client.dart';
@@ -25,7 +26,12 @@ enum _PendingFlow { registration, passwordReset }
 class AuthProvider extends ChangeNotifier {
   factory AuthProvider({ApiClient? apiClient, AuthApiService? apiService}) {
     final client = apiClient ?? ApiClient();
-    return AuthProvider._(client, apiService ?? AuthApiService(client));
+    final provider = AuthProvider._(client, apiService ?? AuthApiService(client));
+    // Any mid-session 401 (revoked token, server-side logout, app
+    // update on the backend) triggers a single refresh attempt — and a
+    // clean sign-out when that fails, instead of a dead "logged-in" shell.
+    client.onUnauthorized = provider._handleUnauthorized;
+    return provider;
   }
 
   AuthProvider._(this._client, this.api);
@@ -58,10 +64,33 @@ class AuthProvider extends ChangeNotifier {
 
   /// Restores any previously saved session. Call once at app start
   /// (splash) before routing.
+  ///
+  /// A session is only ever dropped when it is provably dead: a genuine
+  /// 401 after a failed refresh, or an app update (sessions created by a
+  /// previous build are invalidated so a stale token can never leave the
+  /// app half-logged-in). Timeouts and server errors keep the cached
+  /// session — we never log someone out because the server was slow.
   Future<void> restoreSession() async {
     final access = await PreferencesService.getString(PreferencesService.kAccessToken);
     final refresh = await PreferencesService.getString(PreferencesService.kRefreshToken);
     final sessionJson = await PreferencesService.getString(PreferencesService.kSessionUser);
+
+    // App-update check: a session stamped by an older build is dropped
+    // proactively, before any request could fail confusingly.
+    final currentVersion = await _currentAppVersion();
+    final sessionVersion = await PreferencesService.getString(PreferencesService.kSessionAppVersion);
+    if (access != null && access.isNotEmpty &&
+        currentVersion != null &&
+        sessionVersion != null &&
+        sessionVersion != currentVersion) {
+      currentUser = null;
+      status = AuthStatus.signedOut;
+      _client.authToken = null;
+      await _clearTokens();
+      await PreferencesService.remove(PreferencesService.kSessionUser);
+      notifyListeners();
+      return;
+    }
 
     if (sessionJson != null) {
       try {
@@ -97,12 +126,23 @@ class AuthProvider extends ChangeNotifier {
         _hasSavedLocation = await PreferencesService.getBool(
             PreferencesService.kHasSavedLocationFor(currentUser!.id));
       }
-    } on AuthException {
-      // Invalid/expired beyond refresh — force re-login.
-      currentUser = null;
-      status = AuthStatus.signedOut;
-      _client.authToken = null;
-      await _clearTokens();
+      // The session just survived a live round-trip — stamp it with the
+      // running app version so future updates force a clean re-login.
+      if (currentVersion != null) {
+        await PreferencesService.setString(
+            PreferencesService.kSessionAppVersion, currentVersion);
+      }
+    } on AuthException catch (e) {
+      // Only a genuine 401 (invalid credentials/token, unrefreshable)
+      // ends the session. Anything else (timeout wrapped as a typed
+      // error, 5xx) keeps the cached profile so a flaky server never
+      // signs people out.
+      if (e.isUnauthorized) {
+        currentUser = null;
+        status = AuthStatus.signedOut;
+        _client.authToken = null;
+        await _clearTokens();
+      }
     } catch (_) {
       // Offline / timed out: keep the cached profile and session.
     }
@@ -325,12 +365,74 @@ class AuthProvider extends ChangeNotifier {
       email: me['email'] as String? ?? '',
     );
     status = AuthStatus.signedIn;
+    // Stamp the fresh session with this app version — restore drops it
+    // after an update so a stale token never survives a release.
+    final version = await _currentAppVersion();
+    if (version != null) {
+      await PreferencesService.setString(PreferencesService.kSessionAppVersion, version);
+    }
     // Load THIS account's saved-location flag before anyone routes on it.
     if (currentUser?.id.isNotEmpty == true) {
       _hasSavedLocation = await PreferencesService.getBool(
           PreferencesService.kHasSavedLocationFor(currentUser!.id));
     }
     await _persistSession();
+    notifyListeners();
+  }
+
+  /// Runs the session's app-version stamp (e.g. "0.2.0+3"). Returns null
+  /// if the platform query fails, which disables the update-check rather
+  /// than signing anyone out.
+  Future<String?> _currentAppVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      return '${info.version}+${info.buildNumber}';
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Handles a mid-session 401 reported by [ApiClient]: try ONE silent
+  /// refresh; if the refresh also fails with 401 (revoked/invalidated
+  /// session), sign out cleanly so the UI lands on the login screen
+  /// instead of showing stale screens full of "Request failed (401)".
+  /// Transport-level refresh failures keep the session — the next request
+  /// will simply retry.
+  bool _handlingUnauthorized = false;
+
+  Future<void> _handleUnauthorized() async {
+    if (_handlingUnauthorized || status != AuthStatus.signedIn) return;
+    _handlingUnauthorized = true;
+    try {
+      final refresh = await PreferencesService.getString(PreferencesService.kRefreshToken);
+      if (refresh == null || refresh.isEmpty) {
+        await _signOutFromDeadSession();
+        return;
+      }
+      try {
+        final tokens = await api.refresh(refresh);
+        await PreferencesService.setString(PreferencesService.kAccessToken, tokens.accessToken);
+        await PreferencesService.setString(PreferencesService.kRefreshToken, tokens.refreshToken);
+        _client.authToken = tokens.accessToken;
+      } on AuthException catch (e) {
+        if (e.isUnauthorized) {
+          await _signOutFromDeadSession();
+        }
+      }
+    } finally {
+      _handlingUnauthorized = false;
+    }
+  }
+
+  /// Clean end-of-session path for provably dead tokens (same teardown as
+  /// [signOut], kept separate so intent reads clearly at call sites).
+  Future<void> _signOutFromDeadSession() async {
+    currentUser = null;
+    status = AuthStatus.signedOut;
+    _hasSavedLocation = false;
+    _client.authToken = null;
+    await _clearTokens();
+    await PreferencesService.remove(PreferencesService.kSessionUser);
     notifyListeners();
   }
 

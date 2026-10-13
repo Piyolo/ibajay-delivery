@@ -58,6 +58,11 @@ class PreferencesService {
   static const kAccessToken = 'auth.access_token';
   static const kRefreshToken = 'auth.refresh_token';
 
+  /// App version that created the stored session. A mismatch on restore
+  /// (i.e. the app was updated) forces a fresh login so stale tokens can
+  /// never leave the app in a half-logged-in state.
+  static const kSessionAppVersion = 'auth.session_app_version';
+
   static String kHasSavedLocationFor(String uid) => 'auth.$uid.has_saved_location';
 
   static String kAddressesFor(String uid) => 'location.$uid.addresses';

@@ -2,10 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import '../../models/order.dart';
 import '../../providers/order_provider.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/tracking_map.dart';
 
 /// Vendor-side "Start Delivery" flow: flips the order to out_for_delivery
 /// on the backend (POST /tracking/{id}/start) and streams the device's GPS
@@ -24,6 +26,10 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
   bool _starting = false;
   StreamSubscription<Position>? _positionSub;
   String? _lastPing;
+
+  /// The vendor's own live position — feeds the rider marker so the
+  /// screen doubles as a navigation view toward the customer's pin.
+  LatLng? _currentPos;
 
   @override
   void initState() {
@@ -101,8 +107,11 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
           longitude: position.longitude,
         );
         if (mounted) {
-          setState(() =>
-              _lastPing = '${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)}');
+          setState(() {
+            _currentPos = LatLng(position.latitude, position.longitude);
+            _lastPing =
+                '${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)}';
+          });
         }
       },
       onError: (_) {
@@ -142,29 +151,41 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
           Expanded(
             child: Stack(
               children: [
-                Container(
-                  color: AppColors.surfaceMuted,
-                  child: Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          _tracking ? Icons.radar : Icons.map_outlined,
-                          size: 56,
-                          color: AppColors.textSecondary,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          _tracking
-                              ? 'Sharing live location with the customer\n$_lastPing'
-                              : 'Live location sharing is off.\nResume it so the customer can follow your delivery.',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(color: AppColors.textSecondary),
-                        ),
-                      ],
+                // Live navigation view: the customer's delivery pin plus
+                // (while sharing) the vendor's own GPS marker, so the
+                // vendor can see where they are relative to the drop-off.
+                if (order?.customerLat != null && order?.customerLng != null)
+                  Positioned.fill(
+                    child: TrackingMap(
+                      destination: LatLng(order!.customerLat!, order.customerLng!),
+                      rider: _currentPos,
+                      height: double.infinity,
+                    ),
+                  )
+                else
+                  Container(
+                    color: AppColors.surfaceMuted,
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _tracking ? Icons.radar : Icons.map_outlined,
+                            size: 56,
+                            color: AppColors.textSecondary,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            _tracking
+                                ? 'Sharing live location with the customer\n$_lastPing'
+                                : 'Live location sharing is off.\nResume it so the customer can follow your delivery.',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: AppColors.textSecondary),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
                 if (_tracking)
                   Positioned(
                     top: 16,

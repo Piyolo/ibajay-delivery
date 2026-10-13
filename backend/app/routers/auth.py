@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 import re
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.deps import get_current_user
+from app.core.rate_limit import client_ip, limiter, per_ip_rate_limit
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -34,11 +35,20 @@ from app.services.email import send_otp_email
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 settings = get_settings()
 
+# Failed-login budget: per (client IP + mobile number) sliding window.
+LOGIN_FAILURE_LIMIT = 5
+LOGIN_WINDOW_SECONDS = 60
+LOGIN_LIMIT_DETAIL = "Too many failed login attempts. Please wait a minute and try again."
+
 
 # ---------------------------------------------------------------------------
 # Step 1: collect name / mobile / email, issue OTP
 # ---------------------------------------------------------------------------
-@router.post("/register/start", status_code=status.HTTP_200_OK)
+@router.post(
+    "/register/start",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(per_ip_rate_limit("register-start", limit=3))],
+)
 async def register_start(payload: RegisterStart, db: AsyncSession = Depends(get_db)):
     existing = await db.execute(
         select(User).where((User.email == payload.email) | (User.mobile_number == payload.mobile_number))
@@ -136,8 +146,8 @@ async def set_password(payload: SetPassword, db: AsyncSession = Depends(get_db))
     await db.refresh(user)
 
     return TokenResponse(
-        access_token=create_access_token(str(user.id), user.role.value),
-        refresh_token=create_refresh_token(str(user.id)),
+        access_token=create_access_token(str(user.id), user.role.value, user.token_version),
+        refresh_token=create_refresh_token(str(user.id), user.token_version),
         user_id=user.id,
         role=user.role.value,
     )
@@ -147,18 +157,31 @@ async def set_password(payload: SetPassword, db: AsyncSession = Depends(get_db))
 # Login (mobile number + password)
 # ---------------------------------------------------------------------------
 @router.post("/login", response_model=TokenResponse)
-async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(payload: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    # Sliding window over FAILED attempts for this (IP + mobile) pair —
+    # checked before touching the DB, recorded only when credentials are
+    # wrong, cleared on success (see app/core/rate_limit.py).
+    fail_key = f"login:{client_ip(request)}:{payload.mobile_number}"
+    limiter.check(
+        fail_key,
+        limit=LOGIN_FAILURE_LIMIT,
+        window_seconds=LOGIN_WINDOW_SECONDS,
+        detail=LOGIN_LIMIT_DETAIL,
+    )
+
     result = await db.execute(select(User).where(User.mobile_number == payload.mobile_number))
     user = result.scalar_one_or_none()
 
     if not user or not verify_password(payload.password, user.password_hash):
+        limiter.record(fail_key, window_seconds=LOGIN_WINDOW_SECONDS)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid mobile number or password")
     if not user.is_active:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Account is deactivated")
 
+    limiter.clear(fail_key)
     return TokenResponse(
-        access_token=create_access_token(str(user.id), user.role.value),
-        refresh_token=create_refresh_token(str(user.id)),
+        access_token=create_access_token(str(user.id), user.role.value, user.token_version),
+        refresh_token=create_refresh_token(str(user.id), user.token_version),
         user_id=user.id,
         role=user.role.value,
     )
@@ -174,10 +197,14 @@ async def refresh_token(payload: RefreshRequest, db: AsyncSession = Depends(get_
     user = result.scalar_one_or_none()
     if not user or not user.is_active:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found or inactive")
+    # Same revocation rule as deps.get_current_user: a refresh token minted
+    # before a password change (or by a pre-revocation deploy, no `tv`) is dead.
+    if data.get("tv") != user.token_version:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token has been revoked")
 
     return TokenResponse(
-        access_token=create_access_token(str(user.id), user.role.value),
-        refresh_token=create_refresh_token(str(user.id)),
+        access_token=create_access_token(str(user.id), user.role.value, user.token_version),
+        refresh_token=create_refresh_token(str(user.id), user.token_version),
         user_id=user.id,
         role=user.role.value,
     )
@@ -186,7 +213,10 @@ async def refresh_token(payload: RefreshRequest, db: AsyncSession = Depends(get_
 # ---------------------------------------------------------------------------
 # Forgot password: email -> OTP -> verify -> new password
 # ---------------------------------------------------------------------------
-@router.post("/forgot-password/start")
+@router.post(
+    "/forgot-password/start",
+    dependencies=[Depends(per_ip_rate_limit("forgot-password-start", limit=3))],
+)
 async def forgot_password_start(payload: ForgotPasswordStart, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == payload.email))
     user = result.scalar_one_or_none()
@@ -235,6 +265,7 @@ async def forgot_password_reset(payload: ResetPassword, db: AsyncSession = Depen
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found")
 
     user.password_hash = hash_password(payload.new_password)
+    user.token_version += 1  # revoke every token issued before this reset
     verification.is_used = True
     await db.commit()
     return {"message": "Password reset successful. You can now log in."}
@@ -301,5 +332,6 @@ async def change_password(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Current password is incorrect")
 
     current_user.password_hash = hash_password(payload.new_password)
+    current_user.token_version += 1  # revoke every previously issued token
     await db.commit()
     return {"message": "Password changed successfully"}

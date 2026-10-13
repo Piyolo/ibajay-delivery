@@ -35,20 +35,21 @@ def _create_token(subject: str, expires_delta: timedelta, token_type: Literal["a
     return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
-def create_access_token(user_id: str, role: str) -> str:
+def create_access_token(user_id: str, role: str, token_version: int) -> str:
     return _create_token(
         subject=user_id,
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
         token_type="access",
-        extra={"role": role},
+        extra={"role": role, "tv": token_version},
     )
 
 
-def create_refresh_token(user_id: str) -> str:
+def create_refresh_token(user_id: str, token_version: int) -> str:
     return _create_token(
         subject=user_id,
         expires_delta=timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
         token_type="refresh",
+        extra={"tv": token_version},
     )
 
 

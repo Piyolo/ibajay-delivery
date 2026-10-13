@@ -1,4 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Release builds only merge src/main — without this every API call
+         fails with "No network connection" (debug/profile manifests have
+         it, which is why flutter run always worked). -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="ibajay_eats_vendor"
         android:name="${applicationName}"

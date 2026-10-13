@@ -8,8 +8,13 @@ import 'providers/favorites_provider.dart';
 import 'providers/location_provider.dart';
 import 'providers/order_provider.dart';
 import 'providers/vendor_provider.dart';
+import 'screens/auth/landing_screen.dart';
 import 'screens/splash_screen.dart';
 import 'theme/app_theme.dart';
+
+/// Global navigator key so the auth listener can bounce a dead session
+/// back to the landing screen from anywhere in the tree.
+final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 
 void main() {
   runApp(const IbajayEatsApp());
@@ -41,7 +46,11 @@ class _IbajayEatsAppState extends State<IbajayEatsApp> {
   void initState() {
     super.initState();
     _auth = AuthProvider();
-    _location = LocationProvider();
+    // LocationProvider MUST share the auth client — its address
+    // sync/save calls are authenticated, and a private client never
+    // receives the token (the address book silently stopped syncing
+    // and setup re-appeared on returning accounts without this).
+    _location = LocationProvider(apiClient: _auth.client);
     _vendors = VendorProvider();
     _orders = OrderProvider(apiClient: _auth.client, vendors: _vendors);
     // Chat shares the auth provider's ApiClient so its requests carry
@@ -72,6 +81,16 @@ class _IbajayEatsAppState extends State<IbajayEatsApp> {
       // Cart and conversations belong to the account too.
       _cart.clear();
       _chat.reset();
+      // A session that died MID-USE (revoked token, failed refresh)
+      // lands here while the user is deep in the app — send them to the
+      // landing screen instead of leaving stale screens behind. The
+      // manual Sign Out button navigates itself, so only auto-sign-outs
+      // (app start / dead session) need this; either way pushing the
+      // same destination is harmless and idempotent.
+      appNavigatorKey.currentState?.pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LandingScreen()),
+        (route) => false,
+      );
     }
   }
 
@@ -101,6 +120,7 @@ class _IbajayEatsAppState extends State<IbajayEatsApp> {
         title: 'Ibajay Eats',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light,
+        navigatorKey: appNavigatorKey,
         home: const SplashScreen(),
       ),
     );

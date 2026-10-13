@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../models/vendor.dart';
 import '../services/api_client.dart';
@@ -20,11 +21,16 @@ class VendorProvider extends ChangeNotifier {
   /// requests.
   factory VendorProvider({ApiClient? apiClient}) {
     final client = apiClient ?? ApiClient();
-    return VendorProvider._(
+    final provider = VendorProvider._(
       client,
       VendorApiService(client),
       AuthApiService(client),
     );
+    // Any mid-session 401 (revoked token, server-side logout) triggers a
+    // single refresh attempt — and a clean sign-out when that fails,
+    // instead of a dead "logged-in" shell full of 401 toasts.
+    client.onUnauthorized = provider._handleUnauthorized;
+    return provider;
   }
 
   VendorProvider._(this._client, this.api, this._auth) {
@@ -109,12 +115,31 @@ class VendorProvider extends ChangeNotifier {
   /// Restores the persisted session: validates the stored access token
   /// against /vendor/me (refreshing once if expired) and reloads the live
   /// store profile. Falls back to the cached profile when offline.
+  ///
+  /// A session is only dropped when it is provably dead: a genuine 401
+  /// after a failed refresh (or no refresh token at all), or an app
+  /// update. Timeouts and 5xx keep the cached profile — a flaky server
+  /// never signs the vendor out.
   Future<void> restoreSession() async {
     final access = await PreferencesService.getString(PreferencesService.kAccessToken);
     final refresh = await PreferencesService.getString(PreferencesService.kRefreshToken);
     final profileJson = await PreferencesService.getString(PreferencesService.kProfile);
     final setupDone = await PreferencesService.getBool(PreferencesService.kSetupDone);
     final mobile = await PreferencesService.getString(PreferencesService.kOwnerMobile);
+
+    // App-update check: a session stamped by an older build is dropped
+    // proactively, before any request could fail confusingly.
+    final currentVersion = await _currentAppVersion();
+    final sessionVersion = await PreferencesService.getString(PreferencesService.kSessionAppVersion);
+    if (access != null && access.isNotEmpty &&
+        currentVersion != null &&
+        sessionVersion != null &&
+        sessionVersion != currentVersion) {
+      await _forceSignOut();
+      _restored = true;
+      notifyListeners();
+      return;
+    }
 
     if (profileJson != null && profileJson.isNotEmpty) {
       try {
@@ -144,20 +169,39 @@ class VendorProvider extends ChangeNotifier {
 
     try {
       await _loadStore();
+      // The session just survived a live round-trip — stamp it with the
+      // running app version so future updates force a clean re-login.
+      if (currentVersion != null) {
+        await PreferencesService.setString(
+            PreferencesService.kSessionAppVersion, currentVersion);
+      }
     } on StoreApiException catch (e) {
       if (e.statusCode == 404) {
         // Signed in but the store hasn't been created yet — route through
         // the setup flow.
         _hasCompletedStoreSetup = false;
-      } else if (e.isUnauthorized && refresh != null && refresh.isNotEmpty) {
-        try {
-          final tokens = await _auth.refresh(refresh);
-          await _saveTokens(tokens);
-          await _loadStore();
-        } on AuthException {
+      } else if (e.isUnauthorized) {
+        if (refresh != null && refresh.isNotEmpty) {
+          try {
+            final tokens = await _auth.refresh(refresh);
+            await _saveTokens(tokens);
+            await _loadStore();
+            if (currentVersion != null) {
+              await PreferencesService.setString(
+                  PreferencesService.kSessionAppVersion, currentVersion);
+            }
+          } on AuthException catch (e2) {
+            // Only a genuine 401 (revoked/invalid refresh) ends the
+            // session; a timeout while refreshing keeps it.
+            if (e2.isUnauthorized) {
+              await _forceSignOut();
+            }
+          } catch (_) {
+            // Offline — keep cached profile.
+          }
+        } else {
+          // 401 with no refresh token: nothing can revive this session.
           await _forceSignOut();
-        } catch (_) {
-          // Offline — keep cached profile.
         }
       }
       // Other errors (offline): keep cached profile.
@@ -167,6 +211,18 @@ class VendorProvider extends ChangeNotifier {
 
     _restored = true;
     notifyListeners();
+  }
+
+  /// Runs the session's app-version stamp (e.g. "0.2.0+3"). Returns null
+  /// if the platform query fails, which disables the update-check rather
+  /// than signing anyone out.
+  Future<String?> _currentAppVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      return '${info.version}+${info.buildNumber}';
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> _loadStore() async {
@@ -204,8 +260,29 @@ class VendorProvider extends ChangeNotifier {
 
       _mobileNumber = mobileNumber;
       await PreferencesService.setString(PreferencesService.kOwnerMobile, mobileNumber);
-      await _loadStore();
+      try {
+        await _loadStore();
+      } on StoreApiException catch (e) {
+        if (e.statusCode != 404) rethrow;
+        // The ACCOUNT exists but its store was never created (e.g. the
+        // vendor abandoned setup). That's not an error — send them
+        // through Store Setup instead of force-signing them out, which
+        // previously made setup impossible to finish.
+        _isAuthenticated = true;
+        _hasCompletedStoreSetup = false;
+        final version = await _currentAppVersion();
+        if (version != null) {
+          await PreferencesService.setString(
+              PreferencesService.kSessionAppVersion, version);
+        }
+        return true;
+      }
       _isAuthenticated = true;
+      final version = await _currentAppVersion();
+      if (version != null) {
+        await PreferencesService.setString(
+            PreferencesService.kSessionAppVersion, version);
+      }
       return true;
     } on AuthException catch (e) {
       lastAuthError = e.message;
@@ -217,6 +294,38 @@ class VendorProvider extends ChangeNotifier {
     } finally {
       _isBusy = false;
       notifyListeners();
+    }
+  }
+
+  /// Handles a mid-session 401 reported by [ApiClient]: try ONE silent
+  /// refresh; if the refresh also fails with 401 (revoked session),
+  /// sign out cleanly so the splash/login flow takes over instead of
+  /// showing stale screens full of "Request failed (401)".
+  /// Transport-level refresh failures keep the session.
+  bool _handlingUnauthorized = false;
+
+  Future<void> _handleUnauthorized() async {
+    if (_handlingUnauthorized || !_isAuthenticated) return;
+    _handlingUnauthorized = true;
+    try {
+      final refresh = await PreferencesService.getString(PreferencesService.kRefreshToken);
+      if (refresh == null || refresh.isEmpty) {
+        await _forceSignOut();
+        notifyListeners();
+        return;
+      }
+      try {
+        final tokens = await _auth.refresh(refresh);
+        await _saveTokens(tokens);
+        _client.authToken = tokens.accessToken;
+      } on AuthException catch (e) {
+        if (e.isUnauthorized) {
+          await _forceSignOut();
+          notifyListeners();
+        }
+      }
+    } finally {
+      _handlingUnauthorized = false;
     }
   }
 
@@ -315,6 +424,13 @@ class VendorProvider extends ChangeNotifier {
       _mobileNumber = _pendingMobile;
       await PreferencesService.setString(
           PreferencesService.kOwnerMobile, _pendingMobile ?? '');
+      // Stamp the fresh session with this app version so restore drops it
+      // after an update.
+      final version = await _currentAppVersion();
+      if (version != null) {
+        await PreferencesService.setString(
+            PreferencesService.kSessionAppVersion, version);
+      }
       _isAuthenticated = true;
       _hasCompletedStoreSetup = false;
       return true;

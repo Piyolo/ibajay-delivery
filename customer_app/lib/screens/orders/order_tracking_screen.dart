@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import '../../models/order.dart';
 import '../../providers/chat_provider.dart';
@@ -7,6 +8,7 @@ import '../../providers/vendor_provider.dart';
 import '../../services/api_client.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/status_badge.dart';
+import '../../widgets/tracking_map.dart';
 import '../chat/chat_screen.dart';
 
 class OrderTrackingScreen extends StatefulWidget {
@@ -184,13 +186,31 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
           else ...[
             ClipRRect(
               borderRadius: BorderRadius.circular(AppRadius.lg),
-              child: Container(
-                height: 180,
-                color: AppColors.surfaceMuted,
+              child: SizedBox(
+                height: 200,
                 child: Stack(
-                  alignment: Alignment.center,
                   children: [
-                    const Icon(Icons.map_outlined, size: 48, color: AppColors.textSecondary),
+                    // Live tracking map: the rider's position (relayed
+                    // from the vendor app's GPS pings) against the
+                    // customer's own delivery pin. Orders without pinned
+                    // coordinates fall back to the status-only box.
+                    if (order.fulfillmentType != FulfillmentType.pickup &&
+                        order.destinationLat != null &&
+                        order.destinationLng != null)
+                      TrackingMap(
+                        destination: LatLng(order.destinationLat!, order.destinationLng!),
+                        rider: orderProvider.riderLat != null && orderProvider.riderLng != null
+                            ? LatLng(orderProvider.riderLat!, orderProvider.riderLng!)
+                            : null,
+                        height: 200,
+                      )
+                    else
+                      Container(
+                        width: double.infinity,
+                        color: AppColors.surfaceMuted,
+                        child: const Icon(Icons.map_outlined,
+                            size: 48, color: AppColors.textSecondary),
+                      ),
                     if (order.status == OrderStatus.outForDelivery)
                       Positioned(
                         bottom: 12,
@@ -211,8 +231,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                             child: Text(
                               orderProvider.trackingError ??
                                   (orderProvider.riderLat != null
-                                      ? 'Live location · ${orderProvider.riderLat!.toStringAsFixed(4)}, ${orderProvider.riderLng!.toStringAsFixed(4)}'
-                                      : 'Your order is on the way'),
+                                      ? 'Your rider is on the way — follow them on the map'
+                                      : 'Your order is on the way — waiting for the rider\u2019s first location ping'),
                               textAlign: TextAlign.center,
                               style: const TextStyle(
                                   color: Colors.white,

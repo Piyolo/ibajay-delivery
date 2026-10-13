@@ -34,6 +34,13 @@ class ApiClient {
   /// public data (vendor browsing) never need it.
   String? authToken;
 
+  /// Invoked (fire-and-forget) when an authenticated request comes back
+  /// 401 mid-session, so [AuthProvider] can refresh the token once or
+  /// sign out cleanly instead of leaving a dead "logged-in" shell.
+  /// Auth endpoints themselves (/auth/*) never trigger it — sign-in and
+  /// refresh handle their own 401s.
+  void Function()? onUnauthorized;
+
   Uri _uri(String path, [Map<String, String>? query]) =>
       Uri.parse('$baseUrl/api/v1$path').replace(queryParameters: query);
 
@@ -56,26 +63,26 @@ class ApiClient {
 
   Future<dynamic> get(String path, [Map<String, String>? query]) async {
     final response = await _send(_client.get(_uri(path, query), headers: _headers()));
-    return _handle(response);
+    return _handle(response, path);
   }
 
   Future<dynamic> post(String path, {Object? body, Map<String, String>? query}) async {
     final response = await _send(
       _client.post(_uri(path, query), headers: _headers(), body: jsonEncode(body ?? {})),
     );
-    return _handle(response);
+    return _handle(response, path);
   }
 
   Future<dynamic> patch(String path, {Object? body, Map<String, String>? query}) async {
     final response = await _send(
       _client.patch(_uri(path, query), headers: _headers(), body: jsonEncode(body ?? {})),
     );
-    return _handle(response);
+    return _handle(response, path);
   }
 
   Future<dynamic> delete(String path) async {
     final response = await _send(_client.delete(_uri(path), headers: _headers()));
-    return _handle(response);
+    return _handle(response, path);
   }
 
   /// Uploads a local file as a multipart POST (e.g. chat photos to
@@ -101,7 +108,7 @@ class ApiClient {
         if (authToken != null) 'Authorization': 'Bearer $authToken',
       };
 
-  dynamic _handle(http.Response response) {
+  dynamic _handle(http.Response response, [String path = '']) {
     dynamic decoded;
     if (response.body.isNotEmpty) {
       try {
@@ -118,6 +125,15 @@ class ApiClient {
               : (response.statusCode >= 500
                   ? 'Server error (${response.statusCode}). Please try again shortly.'
                   : 'Request failed (${response.statusCode})'));
+      // Mid-session 401 on a non-auth endpoint: the access token is dead.
+      // Notify the session owner (refresh-or-sign-out) — sign-in/refresh
+      // endpoints manage their own 401s and must not recurse here.
+      if (response.statusCode == 401 &&
+          authToken != null &&
+          !path.startsWith('/auth/') &&
+          onUnauthorized != null) {
+        onUnauthorized!();
+      }
       throw ApiException(message, statusCode: response.statusCode);
     }
     return decoded;

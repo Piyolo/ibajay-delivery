@@ -5,9 +5,14 @@ import 'providers/menu_provider.dart';
 import 'providers/order_provider.dart';
 import 'providers/promotions_provider.dart';
 import 'providers/vendor_provider.dart';
+import 'screens/auth/login_screen.dart';
 import 'screens/splash_screen.dart';
 import 'services/api_client.dart';
 import 'theme/app_theme.dart';
+
+/// Global navigator key so the auth listener can bounce a dead session
+/// back to the login screen from anywhere in the tree.
+final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 
 void main() {
   runApp(const VendorApp());
@@ -40,10 +45,29 @@ class _VendorAppState extends State<VendorApp> {
     _menu = MenuProvider(apiClient: _sharedClient);
     _promotions = PromotionsProvider(apiClient: _sharedClient);
     _chat = ChatProvider(apiClient: _sharedClient);
+    _vendor.addListener(_onVendorAuthChanged);
+  }
+
+  /// Tracks the last known auth state so a session that dies MID-USE
+  /// (revoked token, failed refresh) bounces the vendor back to login
+  /// instead of leaving stale screens behind. Splash-driven sign-outs
+  /// don't need this (routing happens there), but they're harmless.
+  bool _wasAuthenticated = false;
+
+  void _onVendorAuthChanged() {
+    final authed = _vendor.isAuthenticated;
+    if (_wasAuthenticated && !authed) {
+      appNavigatorKey.currentState?.pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        (route) => false,
+      );
+    }
+    _wasAuthenticated = authed;
   }
 
   @override
   void dispose() {
+    _vendor.removeListener(_onVendorAuthChanged);
     _sharedClient.dispose();
     for (final n in [_vendor, _orders, _menu, _promotions, _chat]) {
       n.dispose();
@@ -65,6 +89,7 @@ class _VendorAppState extends State<VendorApp> {
         title: 'Ibajay Eats — Vendor',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light,
+        navigatorKey: appNavigatorKey,
         home: const SplashScreen(),
       ),
     );

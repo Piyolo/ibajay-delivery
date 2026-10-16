@@ -24,7 +24,8 @@ class OrderTrackingScreen extends StatefulWidget {
   State<OrderTrackingScreen> createState() => _OrderTrackingScreenState();
 }
 
-class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
+class _OrderTrackingScreenState extends State<OrderTrackingScreen>
+    with WidgetsBindingObserver {
   // Captured for dispose(), where inherited lookups are no longer allowed.
   late final OrderProvider _orders = context.read<OrderProvider>();
 
@@ -35,6 +36,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // Deep-opened or freshly restored session: fetch from the API if the
     // order isn't already in memory. Live tracking starts only once the
     // fetched/known status is actually out_for_delivery.
@@ -54,20 +56,66 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     // which covers nothing while the socket is down. Poll so accepted /
     // preparing / out-for-delivery transitions appear without the
     // customer having to reopen the app.
+    _startPolling();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Polling keeps burning data while the app sits in the background —
+    // pause it on pause/hidden, resume (with an immediate refresh) on
+    // returning to the foreground.
+    switch (state) {
+      case AppLifecycleState.resumed:
+        _startPolling(immediate: true);
+      case AppLifecycleState.paused || AppLifecycleState.hidden:
+        _refreshTimer?.cancel();
+        _refreshTimer = null;
+      default:
+        break;
+    }
+  }
+
+  /// True once the order has reached a state that can never change again —
+  /// there is nothing left to poll for (pull-to-refresh still works).
+  bool _isTerminal(CustomerOrder? order) =>
+      order == null ||
+      order.status == OrderStatus.delivered ||
+      order.status == OrderStatus.completed ||
+      order.status == OrderStatus.cancelled;
+
+  void _startPolling({bool immediate = false}) {
+    _refreshTimer?.cancel();
     _refreshTimer =
         Timer.periodic(const Duration(seconds: 12), (_) => _autoRefresh());
+    if (immediate) _autoRefresh();
   }
 
   /// Periodic pull: refresh this order, and (re)start live tracking the
   /// moment it becomes out_for_delivery — including transitions that
-  /// happened while the socket wasn't connected.
+  /// happened while the socket wasn't connected. Stops itself once the
+  /// order is terminal (delivered/completed/cancelled).
   Future<void> _autoRefresh() async {
     if (!mounted) return;
+    if (_isTerminal(_orders.byId(widget.orderId))) {
+      _refreshTimer?.cancel();
+      _refreshTimer = null;
+      return;
+    }
     final fresh = await _orders.refreshOrder(widget.orderId);
     if (!mounted || fresh == null) return;
     if (fresh.status == OrderStatus.outForDelivery &&
         _orders.watchedOrderId != widget.orderId) {
       _orders.watchOrder(widget.orderId);
+    }
+    if (_isTerminal(fresh)) {
+      // One last UI cycle picks up the final state; no further polls.
+      _refreshTimer?.cancel();
+      _refreshTimer = null;
+      if (fresh.status == OrderStatus.delivered ||
+          fresh.status == OrderStatus.completed) {
+        await _loadReview();
+      }
+      return;
     }
     if (fresh.status == OrderStatus.delivered ||
         fresh.status == OrderStatus.completed) {
@@ -103,12 +151,16 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _refreshTimer?.cancel();
     _orders.stopWatching();
     super.dispose();
   }
 
   Future<void> _cancelOrder(CustomerOrder order) async {
+    // Double-tap protection: an in-flight cancel ignores further taps and
+    // the button disables below via isCancelling().
+    if (_orders.isCancelling(order.id)) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -341,12 +393,21 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                 ),
               ),
             ),
-            if (order.isActive && order.status != OrderStatus.outForDelivery) ...[
+            // Business-rule visibility matches the backend: customers may
+            // cancel only while the order is undecided or freshly accepted
+            // — once the kitchen starts preparing it, cancellation is
+            // restricted to the store.
+            if (order.status == OrderStatus.pending ||
+                order.status == OrderStatus.accepted) ...[
               const SizedBox(height: 16),
               OutlinedButton(
-                onPressed: () => _cancelOrder(order),
+                onPressed: _orders.isCancelling(order.id)
+                    ? null
+                    : () => _cancelOrder(order),
                 style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger),
-                child: const Text('Cancel Order'),
+                child: Text(_orders.isCancelling(order.id)
+                    ? 'Cancelling…'
+                    : 'Cancel Order'),
               ),
             ],
             // Rate the order once it's done — one review per completed

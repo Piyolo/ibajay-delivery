@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -27,6 +28,10 @@ class OrderProvider extends ChangeNotifier {
 
   final List<CustomerOrder> _orders = [];
   bool _isLoading = false;
+
+  /// Orders with a cancel call currently in flight — double-taps are
+  /// ignored until the first attempt settles.
+  final Set<String> _cancellingOrderIds = {};
 
   /// Last network error (load/checkout/cancel) for UI display; null when
   /// the last operation succeeded.
@@ -69,10 +74,41 @@ class OrderProvider extends ChangeNotifier {
 
   // ---- Checkout ----
 
+  String? _idempotencyKey;
+  String? _idempotencySignature;
+
+  /// Generates a UUID-v4-formatted key from crypto-random bytes (the
+  /// package:uuid dependency isn't in this project, and the format only
+  /// needs to be unique per checkout session — the backend treats it as an
+  /// opaque string).
+  String _newIdempotencyKey() {
+    final rng = Random.secure();
+    final bytes = List<int>.generate(16, (_) => rng.nextInt(256));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+    bytes[8] = (bytes[8] & 0x3f) | 0x80; // RFC 4122 variant
+    final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-'
+        '${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}';
+  }
+
+  /// Signature of the cart content the current key was minted for. If the
+  /// customer edits their cart between two checkout attempts, a new key is
+  /// issued — replaying the old key would otherwise resurrect the first
+  /// (now-stale) order instead of placing the modified one.
+  String _cartSignature(Cart cart) =>
+      cart.items.map((ci) => '${ci.foodItem.id}:${ci.quantity}:'
+          '${ci.selectedOptions.map((o) => '${o.groupName}=${o.choices.map((c) => c.label).join('+')}').join('|')}')
+          .join(';');
+
   /// Places a real order via `POST /orders/checkout`. The backend rebuilds
   /// every line from its own food-item table, so only IDs/quantities/
   /// option labels are sent. Throws [ApiException] with a user-friendly
   /// message when the backend rejects it.
+  ///
+  /// Duplicate-submission protection: every checkout attempt carries an
+  /// Idempotency-Key header. Retries after a timeout reuse the same key
+  /// (same cart) so the backend replays the SAME order instead of creating
+  /// a second paid one; a changed cart gets a fresh key.
   Future<CustomerOrder> checkout({
     required Cart cart,
     required VendorProfile vendor,
@@ -110,8 +146,20 @@ class OrderProvider extends ChangeNotifier {
         'promo_code': promoCode.trim().toUpperCase(),
     };
 
-    final data = await _client.post('/orders/checkout', body: payload);
+    final signature = _cartSignature(cart);
+    if (_idempotencyKey == null || _idempotencySignature != signature) {
+      _idempotencyKey = _newIdempotencyKey();
+      _idempotencySignature = signature;
+    }
+
+    final data = await _client.post(
+      '/orders/checkout',
+      body: payload,
+      headers: {'Idempotency-Key': _idempotencyKey!},
+    );
     final order = _orderFromApi(data as Map<String, dynamic>);
+    _idempotencyKey = null;
+    _idempotencySignature = null;
     _orders.add(order);
     notifyListeners();
     // A brand-new order is a state change worth reflecting in the
@@ -190,16 +238,33 @@ class OrderProvider extends ChangeNotifier {
 
   // ---- Cancellation ----
 
+  /// Whether a cancel call for [orderId] is still awaiting the backend
+  /// (used by the UI to disable the button against double-taps).
+  bool isCancelling(String orderId) => _cancellingOrderIds.contains(orderId);
+
   /// Cancels server-side (`reason` is a query parameter on the backend),
-  /// then reflects the new status locally.
-  Future<void> cancelOrder(String orderId, String reason) async {
-    await _client.post('/orders/$orderId/cancel', query: {'reason': reason});
-    final order = byId(orderId);
-    if (order != null) {
-      order.status = OrderStatus.cancelled;
-      order.cancellationReason = reason;
+  /// then reflects the new status locally. Returns false when the action
+  /// was skipped (already in flight) or the backend refused it —
+  /// [lastError] carries the backend's message, e.g. the
+  /// "already being prepared" cancellation-policy response.
+  Future<bool> cancelOrder(String orderId, String reason) async {
+    if (!_cancellingOrderIds.add(orderId)) return false;
+    notifyListeners();
+    try {
+      await _client.post('/orders/$orderId/cancel', query: {'reason': reason});
+      final order = byId(orderId);
+      if (order != null) {
+        order.status = OrderStatus.cancelled;
+        order.cancellationReason = reason;
+        onOrdersChanged?.call();
+      }
+      return true;
+    } on ApiException catch (e) {
+      lastError = e.message;
+      rethrow;
+    } finally {
+      _cancellingOrderIds.remove(orderId);
       notifyListeners();
-      onOrdersChanged?.call();
     }
   }
 

@@ -21,9 +21,15 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   @override
   void initState() {
     super.initState();
-    // Opened straight after a status change → make sure it's current.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) context.read<NotificationProvider>().refresh();
+    // Opened straight after a status change → make sure it's current, then
+    // honor the home-screen promise: seeing the notification center counts
+    // as reading it, so the bell badge clears on open (the server records
+    // read-all too; failures roll back via the provider's optimistic copy).
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final provider = context.read<NotificationProvider>();
+      await provider.refresh();
+      if (mounted && provider.hasUnread) await provider.markAllRead();
     });
   }
 

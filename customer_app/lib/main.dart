@@ -84,14 +84,19 @@ class _IbajayEatsAppState extends State<IbajayEatsApp> {
       _location.attachUser(uid);
       _favorites.attachUser(uid);
       _notifications.attachUser(uid);
+      // Restores the user's persisted cart (crash/update safety).
+      _cart.attachUser(uid);
+      _prefs.attachUser(uid);
       _orders.loadOrders();
     } else if (_auth.status == AuthStatus.signedOut) {
       _location.detachUser();
       _favorites.detachUser();
       _notifications.detachUser();
+      _prefs.detachUser();
       _orders.stopWatching();
-      // Cart and conversations belong to the account too.
-      _cart.clear();
+      // Cart and conversations belong to the account too. detachUser both
+      // drops the in-memory cart and the persisted per-user link.
+      _cart.detachUser();
       _chat.reset();
       // A session that died MID-USE (revoked token, failed refresh)
       // lands here while the user is deep in the app — send them to the

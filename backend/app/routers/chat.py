@@ -57,6 +57,9 @@ class ChatThreadOut(BaseModel):
     last_message_at: datetime
     last_sender_id: uuid.UUID | None
     message_count: int
+    # Messages the requester did not send that are still unread (shared
+    # is_read flag parity with the client badge).
+    unread_count: int = 0
     # Customer's mobile so the vendor's "Call customer" action works even
     # when the thread has no linked order.
     customer_mobile: str | None = None
@@ -153,7 +156,7 @@ async def my_threads(user: User = Depends(get_current_user), db: AsyncSession = 
         .order_by(Chat.created_at.desc())
     )
     chats = result.scalars().unique().all()
-    return await _thread_payloads(db, chats, customer_view=True)
+    return await _thread_payloads(db, chats, customer_view=True, requester_id=user.id)
 
 
 @router.get("/vendor", response_model=list[ChatThreadOut])
@@ -171,10 +174,12 @@ async def vendor_threads(user: User = Depends(require_vendor), db: AsyncSession 
         .order_by(Chat.created_at.desc())
     )
     chats = result.scalars().unique().all()
-    return await _thread_payloads(db, chats, customer_view=False)
+    return await _thread_payloads(db, chats, customer_view=False, requester_id=user.id)
 
 
-async def _thread_payloads(db: AsyncSession, chats: list[Chat], *, customer_view: bool):
+async def _thread_payloads(
+    db: AsyncSession, chats: list[Chat], *, customer_view: bool, requester_id: uuid.UUID
+):
     """Builds thread summaries, resolving the display name/logo per side."""
     from sqlalchemy.orm import selectinload as _sel
 
@@ -198,6 +203,7 @@ async def _thread_payloads(db: AsyncSession, chats: list[Chat], *, customer_view
         vendor = vendors.get(c.vendor_id)
         customer = customers.get(c.customer_id)
         last = max(c.messages, key=lambda m: m.created_at) if c.messages else None
+        unread = sum(1 for m in c.messages if not m.is_read and m.sender_id != requester_id)
         payloads.append(
             ChatThreadOut(
                 id=c.id,
@@ -212,6 +218,7 @@ async def _thread_payloads(db: AsyncSession, chats: list[Chat], *, customer_view
                 last_message_at=last.created_at if last else c.created_at,
                 last_sender_id=last.sender_id if last else None,
                 message_count=len(c.messages),
+                unread_count=unread,
             )
         )
     return payloads

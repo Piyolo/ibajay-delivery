@@ -44,6 +44,11 @@ class _IbajayEatsAppState extends State<IbajayEatsApp> {
   late final NotificationProvider _notifications;
   late final List<ChangeNotifier> _notifiers;
 
+  // Fires chat bootstrapping once per signed-in session — auth-state
+  // emissions (token refresh, connectivity blips) must not refetch the
+  // thread list every time.
+  bool _chatBootstrapped = false;
+
   @override
   void initState() {
     super.initState();
@@ -88,6 +93,13 @@ class _IbajayEatsAppState extends State<IbajayEatsApp> {
       _cart.attachUser(uid);
       _prefs.attachUser(uid);
       _orders.loadOrders();
+      // Warm the chat thread list once per session so the bottom-nav
+      // unread badge isn't empty until the chat screen is first opened.
+      // Fire-and-forget; loadThreads() guards its own overlap.
+      if (!_chatBootstrapped) {
+        _chatBootstrapped = true;
+        _chat.loadThreads();
+      }
     } else if (_auth.status == AuthStatus.signedOut) {
       _location.detachUser();
       _favorites.detachUser();
@@ -98,6 +110,8 @@ class _IbajayEatsAppState extends State<IbajayEatsApp> {
       // drops the in-memory cart and the persisted per-user link.
       _cart.detachUser();
       _chat.reset();
+      // The next signed-in session bootstraps its chat list fresh.
+      _chatBootstrapped = false;
       // A session that died MID-USE (revoked token, failed refresh)
       // lands here while the user is deep in the app — send them to the
       // landing screen instead of leaving stale screens behind. The

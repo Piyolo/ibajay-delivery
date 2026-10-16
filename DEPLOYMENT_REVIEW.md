@@ -129,3 +129,19 @@ Recorded in `MISSION_REPORT.md` (details, evidence and exact command output ther
 **Neon is documented at  04_cancelled_notification (head as of the prior round). The next backend deploy must also run lembic upgrade head to bring  05_hot_indexes_and_checkout_keys.** Migration 005 is additive (IF NOT EXISTS) - safe while new clients and old clients coexist. The checkout_idempotency_keys table also auto-creates via create_all, but the FK indexes only ship with the migration.
 
 Everything in "Remaining work before go-live" above still stands (FCM config files, Render secrets inventory + admin CORS origin, admin password rotation, deploy verification). Nothing in round-3 changed those steps.
+
+---
+
+## Beta round-4 (2026-10-16) - P2 polish batch (MAS-delegated)
+
+Commits: round-4 batch (customer_app + vendor_app + backend). Verified: pytest **69 passed**, customer_app analyze clean + **16/16**, vendor_app analyze clean + **11/11**; independent tester + two reviewer passes (2 confirmed findings fixed, 2 reviewer claims rejected with evidence, 2 parked).
+
+| Item | Status |
+| --- | --- |
+| Chat WS reconnect + history resync (customer AND vendor, independent parity implementations) | OK - bounded 3x5s retries, stale-channel identity guards, generation/intent guards, timer cleanup on disconnect/reset/dispose, history re-sync BEFORE resubscribe; never-connected sockets keep the offline error path |
+| Startup chat unread badge (customer bottom nav) | OK - `GET /chats/my` now returns additive `unread_count` (shared is_read-flag parity; computed field, **no migration**); client warms threads once per signed-in session in main.dart; dual-branch unreadCount (live messages when opened, else server field) |
+| Cancel affordance on order-history cards (customer) | OK - pending/accepted only, double-tap guard, backend refusal text verbatim |
+| Account-hygiene on sign-out (both chat providers) | OK - threads + socket + timers cleared/notified; vendor also re-sentinels _myUserId so the next account re-fetches (fixes latent mine/theirs split bug) |
+| Image disk cache (customer menu images) | DEFERRED by decision - would require cached_network_image (new dependency tree); stays on P2 backlog |
+
+Round-4 introduced no new dependencies and no migrations. Rejected review findings (stale-channel guard position, snackbar-after-unmount) and parked minors (nested-chat pop, WS-timer integration test, stale lastError after mid-flight sign-out failure) are recorded in the session ledger / MISSION_REPORT follow-ups.

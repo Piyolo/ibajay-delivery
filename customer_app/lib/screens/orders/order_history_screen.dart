@@ -5,6 +5,7 @@ import '../../models/vendor.dart';
 import '../../providers/cart_provider.dart';
 import '../../providers/order_provider.dart';
 import '../../providers/vendor_provider.dart';
+import '../../services/api_client.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/common.dart';
 import '../../widgets/status_badge.dart';
@@ -183,8 +184,62 @@ class _OrderCard extends StatelessWidget {
     );
   }
 
+  /// Cancel flow mirroring order_tracking_screen: confirm prompt, then
+  /// the backend call with a reason (a query param server-side). The
+  /// server refuses anything past "accepted" with a policy message that
+  /// is surfaced verbatim.
+  Future<void> _cancelOrder(BuildContext context) async {
+    final orders = context.read<OrderProvider>();
+    // Double-tap protection: an in-flight cancel ignores further taps and
+    // the button disables via isCancelling().
+    if (orders.isCancelling(order.id)) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Cancel this order?'),
+        content: const Text(
+          'The store will be notified and your order will no longer be prepared. '
+          'This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Keep Order'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+            child: const Text('Cancel Order'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await orders.cancelOrder(order.id, 'Cancelled by customer');
+      messenger.showSnackBar(const SnackBar(content: Text('Your order was cancelled')));
+      // The provider flips the status locally; pull the list too so the
+      // card reflects any server-side side effects (e.g. moved tabs).
+      if (context.mounted) await orders.loadOrders();
+    } on ApiException catch (e) {
+      // Policy refusals ("already being prepared...") pass through as-is.
+      messenger.showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      messenger.showSnackBar(
+          const SnackBar(content: Text('Could not cancel the order — please try again')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final orders = context.watch<OrderProvider>();
+    // Business-rule visibility matches the backend and the tracking
+    // screen: customers may cancel only while the order is undecided or
+    // freshly accepted.
+    final canCancel = order.status == OrderStatus.pending ||
+        order.status == OrderStatus.accepted;
     return Card(
       child: InkWell(
         borderRadius: BorderRadius.circular(AppRadius.lg),
@@ -225,6 +280,20 @@ class _OrderCard extends StatelessWidget {
                     ),
                 ],
               ),
+              if (canCancel)
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: OutlinedButton(
+                    onPressed: orders.isCancelling(order.id)
+                        ? null
+                        : () => _cancelOrder(context),
+                    style:
+                        OutlinedButton.styleFrom(foregroundColor: AppColors.danger),
+                    child: Text(orders.isCancelling(order.id)
+                        ? 'Cancelling…'
+                        : 'Cancel Order'),
+                  ),
+                ),
               // Delivered/completed orders can be rated — the dialog
               // shows the stored review when one already exists.
               if (showReorder &&

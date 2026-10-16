@@ -57,6 +57,9 @@ class _VendorAppState extends State<VendorApp> {
   void _onVendorAuthChanged() {
     final authed = _vendor.isAuthenticated;
     if (_wasAuthenticated && !authed) {
+      // Session died — tear down the chat socket and any pending reconnect
+      // timer so nothing outlives the auth (no dangling timer).
+      _chat.reset();
       appNavigatorKey.currentState?.pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const LoginScreen()),
         (route) => false,

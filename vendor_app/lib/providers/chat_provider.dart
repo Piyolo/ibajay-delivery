@@ -136,6 +136,20 @@ class ChatProvider extends ChangeNotifier {
   // conversation is never churned underneath the user.
   int _openChats = 0;
 
+  // Bounded reconnect for a socket that dies AFTER it was live (network
+  // blip). A live conversation going silently dead is the failure mode this
+  // guards against; the vendor chat screen has no polling fallback.
+  static const int _maxReconnectAttempts = 3;
+  static const Duration _reconnectDelay = Duration(seconds: 5);
+  Timer? _reconnectTimer;
+  int _reconnectAttempts = 0;
+
+  // Bumped whenever the set of intended-open chats changes (connect,
+  // disconnect, reset). Pending retry closures capture the generation at
+  // schedule time and become no-ops once it moves, so a retry can never
+  // resurrect a thread the vendor already closed or replaced.
+  int _connectGeneration = 0;
+
   bool get isLoading => _isLoading;
   List<VendorChatThread> get threads => List.unmodifiable(_threads);
 
@@ -228,6 +242,7 @@ class ChatProvider extends ChangeNotifier {
 
   /// Loads history and opens the live socket for [threadId].
   Future<void> connect(String threadId) async {
+    _connectGeneration++;
     _openChats++;
     await _cacheMyUserId();
     // Ensure the thread exists in state even if loadThreads hasn't run.
@@ -263,7 +278,13 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> _openSocket(String threadId) async {
+  /// Opens the live socket for [threadId].
+  ///
+  /// [isRetry] marks calls made by the bounded reconnect chain: a retry that
+  /// fails to even connect keeps the chain going, while a FIRST connect that
+  /// never becomes ready keeps the old behavior (no retries into the void —
+  /// the screen still shows loaded history and sends surface an error).
+  Future<void> _openSocket(String threadId, {bool isRetry = false}) async {
     await _closeSocket();
     final token = _client.authToken;
     if (token == null || token.isEmpty) return;
@@ -276,6 +297,9 @@ class ChatProvider extends ChangeNotifier {
       await channel.ready;
       _channel = channel;
       _connectedThreadId = threadId;
+      // A successful (re)connect earns a fresh retry budget for any future
+      // mid-conversation drop.
+      _reconnectAttempts = 0;
       channel.stream.listen(
         (data) {
           try {
@@ -297,31 +321,105 @@ class ChatProvider extends ChangeNotifier {
             }
           } catch (_) {}
         },
-        onError: (_) {
-          _connectedThreadId = null;
-          notifyListeners();
-        },
-        onDone: () {
-          _connectedThreadId = null;
-          notifyListeners();
-        },
+        onError: (_) => _handleSocketDrop(channel, threadId),
+        onDone: () => _handleSocketDrop(channel, threadId),
       );
     } catch (_) {
-      // Offline — history still shows; sends surface an error.
+      // Offline — history still shows; sends surface an error. A failed
+      // RETRY keeps the bounded reconnect chain going.
+      if (isRetry) _scheduleReconnect(threadId);
       _connectedThreadId = null;
     }
   }
 
-  Future<void> _closeSocket() async {
-    await _channel?.sink.close();
+  /// Invoked by a live socket's onError/onDone. A close we caused ourselves
+  /// (switching/closing threads) must not be mistaken for a network drop, so
+  /// only the CURRENTLY active channel counts — [identical] against
+  /// [_channel] which [_closeSocket] nulls before closing the sink.
+  void _handleSocketDrop(WebSocketChannel channel, String threadId) {
+    if (!identical(_channel, channel)) return;
     _channel = null;
     _connectedThreadId = null;
+    notifyListeners();
+    _scheduleReconnect(threadId);
+  }
+
+  /// Schedules ONE retry 5s later, up to [_maxReconnectAttempts] per drop.
+  /// No-ops once retries are exhausted or no chat screen is open.
+  void _scheduleReconnect(String threadId) {
+    if (_openChats <= 0) return;
+    if (_reconnectAttempts >= _maxReconnectAttempts) return;
+    _reconnectAttempts++;
+    _reconnectTimer?.cancel();
+    final generation = _connectGeneration;
+    _reconnectTimer = Timer(_reconnectDelay, () {
+      _reconnectTimer = null;
+      _retryConnect(threadId, generation);
+    });
+  }
+
+  Future<void> _retryConnect(String threadId, int generation) async {
+    // Stale: the intended-open set changed (chat closed or another thread
+    // opened) since this retry was scheduled.
+    if (generation != _connectGeneration || _openChats <= 0) return;
+    // Re-sync FIRST: the socket stream only delivers messages from the
+    // moment it opens, so anything the customer sent while we were down
+    // would otherwise never appear. The history merge is idempotent.
+    await _loadHistory(threadId);
+    if (generation != _connectGeneration || _openChats <= 0) return;
+    if (_connectedThreadId == threadId) return; // already live again
+    await _openSocket(threadId, isRetry: true);
+  }
+
+  Future<void> _closeSocket() async {
+    // A deliberate close cancels any pending reconnect — including retries
+    // for a different thread, whose generation check would also catch it.
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    final channel = _channel;
+    // Null the refs BEFORE closing: the stream's onDone fires as the sink
+    // closes and must not treat our own shutdown as a network drop.
+    _channel = null;
+    _connectedThreadId = null;
+    if (channel != null) await channel.sink.close();
   }
 
   /// Call when leaving a chat screen.
   Future<void> disconnect() {
+    _connectGeneration++;
     if (_openChats > 0) _openChats--;
     return _closeSocket();
+  }
+
+  /// Clears live-chat state on sign-out: no socket or retry timer may
+  /// outlive the session, and the next account must never see this store's
+  /// threads or message previews.
+  Future<void> reset() {
+    _connectGeneration++;
+    _openChats = 0;
+    _reconnectAttempts = 0;
+    // Thread objects hold the loaded message lists — clearing the list wipes
+    // all in-memory conversation state in one place.
+    _threads.clear();
+    // Force the next _cacheMyUserId to re-fetch the NEW session's user id —
+    // a stale id would parse the next account's rows with the wrong
+    // mine/theirs split (the cache short-circuits when non-empty).
+    _myUserId = '';
+    notifyListeners();
+    return _closeSocket();
+  }
+
+  @override
+  void dispose() {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    // Drop the refs first: closing the sink fires onDone, whose
+    // _handleSocketDrop must not notify a disposed notifier.
+    final channel = _channel;
+    _channel = null;
+    _connectedThreadId = null;
+    channel?.sink.close();
+    super.dispose();
   }
 
   void sendMessage(String threadId, String content) {

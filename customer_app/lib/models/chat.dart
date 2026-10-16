@@ -45,6 +45,11 @@ class ChatThread {
   DateTime? lastMessageAt;
   int messageCount;
 
+  // Server-side unread tally from the thread-list payload (GET /chats/my
+  // `unread_count`): messages the requester did not send that are still
+  // unread. Null when the row didn't carry the field.
+  int? serverUnreadCount;
+
   ChatThread({
     required this.id,
     required this.vendorId,
@@ -55,6 +60,7 @@ class ChatThread {
     this.lastMessageText,
     this.lastMessageAt,
     this.messageCount = 0,
+    this.serverUnreadCount,
   }) : messages = messages ?? [];
 
   /// Latest activity for previews: live messages win over the summary.
@@ -62,5 +68,13 @@ class ChatThread {
   String? get previewText =>
       lastMessage?.content?.isNotEmpty == true ? lastMessage!.content : lastMessageText;
   DateTime? get previewTime => lastMessage?.createdAt ?? lastMessageAt;
-  int get unreadCount => messages.where((m) => !m.isRead && !m.fromMe).length;
+
+  /// Unread messages from the other side. An opened thread (non-empty
+  /// [messages], kept fresh by history loads and the live WebSocket)
+  /// owns live truth and derives the count from its messages; a
+  /// never-opened thread only knows what the list payload summarized,
+  /// so it falls back to the server's `unread_count` (0 when absent).
+  int get unreadCount => messages.isNotEmpty
+      ? messages.where((m) => !m.isRead && !m.fromMe).length
+      : serverUnreadCount ?? 0;
 }

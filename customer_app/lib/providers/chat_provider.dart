@@ -17,6 +17,17 @@ import '../services/preferences_service.dart';
 class ChatProvider extends ChangeNotifier {
   ChatProvider({ApiClient? apiClient}) : _client = apiClient ?? ApiClient();
 
+  /// Bounded reconnect policy for the live chat socket, kept pure so it
+  /// is unit-testable (see test/chat_reconnect_policy_test.dart): at most
+  /// [maxReconnectAttempts] tries, [reconnectDelay] apart.
+  static const int maxReconnectAttempts = 3;
+  static const Duration reconnectDelay = Duration(seconds: 5);
+
+  /// Whether another reconnect attempt may be scheduled after
+  /// [attemptsSoFar] failed tries.
+  static bool shouldReconnect(int attemptsSoFar) =>
+      attemptsSoFar < maxReconnectAttempts;
+
   final ApiClient _client;
 
   final List<ChatThread> _threads = [];
@@ -25,8 +36,23 @@ class ChatProvider extends ChangeNotifier {
   final Map<String, ChatThread> _openThreads = {};
   WebSocketChannel? _channel;
   String? _connectedThreadId;
+  // Session boundary marker: bumped by reset() (sign-out). In-flight
+  // requests started before the bump must not apply their results —
+  // otherwise a slow /chats/my reply could repopulate threads with the
+  // PREVIOUS account's conversations after the next user signed in.
+  int _sessionStamp = 0;
+  // The thread the user INTENDED to keep open (set in connect(), cleared
+  // in disconnect()) — reconnects only ever apply to it.
+  String? _intendedThreadId;
+  Timer? _retryTimer;
+  int _retryAttempts = 0;
   bool _isLoading = false;
   String? lastError;
+
+  /// Non-invasive connection hint (e.g. "Reconnecting…") while a dropped
+  /// socket is being retried; null when healthy or when retries stopped.
+  String? connectionStatus;
+
   String _myUserId = 'me';
   bool get isLoading => _isLoading;
 
@@ -64,11 +90,19 @@ class ChatProvider extends ChangeNotifier {
   /// returns one row per thread; rows are de-duplicated per vendor so a
   /// legacy duplicate never shows twice.
   Future<void> loadThreads() async {
+    final stamp = _sessionStamp;
     _isLoading = true;
     notifyListeners();
     try {
       await _cacheSessionUser();
       final rows = await _client.get('/chats/my') as List<dynamic>;
+      if (_sessionStamp != stamp) {
+        // The session changed while this request was in flight (sign-out
+        // mid-fetch): discard the rows — they belong to the previous
+        // account. reset() already cleared state and notified.
+        _isLoading = false;
+        return;
+      }
       final parsed = rows.map((r) => _threadFromApi(r as Map<String, dynamic>)).toList();
 
       final byVendor = <String, ChatThread>{};
@@ -153,6 +187,11 @@ class ChatProvider extends ChangeNotifier {
 
   /// Loads full history and opens the live WebSocket for [threadId].
   Future<void> connect(String threadId) async {
+    // The user means to keep this thread open — a later socket drop may
+    // reconnect. A fresh connect also supersedes any pending retry for a
+    // previously-opened thread.
+    _intendedThreadId = threadId;
+    _cancelRetry();
     await _cacheSessionUser();
     await _loadHistory(threadId);
     await _openSocket(threadId);
@@ -173,8 +212,16 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> _openSocket(String threadId) async {
+  /// Opens the live WebSocket for [threadId]. [isRetry] marks a scheduled
+  /// reconnect: on success the full history is re-synced FIRST so nothing
+  /// missed while the socket was down is lost, and a failed retry schedules
+  /// the next bounded attempt. A never-connected socket does NOT retry —
+  /// sends keep failing with the surfaced "Chat is offline" error instead.
+  Future<void> _openSocket(String threadId, {bool isRetry = false}) async {
     await _closeSocket();
+    // The user may have left the screen while we awaited — never reopen
+    // a thread nobody is looking at.
+    if (_intendedThreadId != threadId) return;
     final token = await PreferencesService.getString(PreferencesService.kAccessToken);
     if (token == null) return;
 
@@ -183,8 +230,21 @@ class ChatProvider extends ChangeNotifier {
     try {
       final channel = WebSocketChannel.connect(uri);
       await channel.ready;
+      if (_intendedThreadId != threadId) {
+        await channel.sink.close();
+        return;
+      }
       _channel = channel;
       _connectedThreadId = threadId;
+      // A fresh connect supersedes any retry left over from the previous
+      // socket (e.g. the old channel's late onDone fired during reopen).
+      _cancelRetry();
+      if (isRetry) {
+        // Resync anything the store pushed while we were disconnected,
+        // BEFORE attaching to the live stream (the merge keeps open-thread
+        // state like read flags intact).
+        await _loadHistory(threadId);
+      }
       channel.stream.listen(
         (data) {
           try {
@@ -204,20 +264,70 @@ class ChatProvider extends ChangeNotifier {
             }
           } catch (_) {}
         },
+        // A stale channel's late close events must not tear down the
+        // socket that replaced it.
         onError: (_) {
-          _connectedThreadId = null;
-          notifyListeners();
+          if (identical(_channel, channel)) _handleSocketDrop(threadId);
         },
         onDone: () {
-          _connectedThreadId = null;
-          notifyListeners();
+          if (identical(_channel, channel)) _handleSocketDrop(threadId);
         },
       );
     } catch (_) {
-      // WS unavailable (offline / server asleep) — sends will fail with a
-      // surfaced error; history still shows.
-      _connectedThreadId = null;
+      // Initial open: WS unavailable (offline / server asleep) — sends
+      // will fail with a surfaced error; history still shows. A RETRY
+      // attempt that fails schedules the next bounded try.
+      if (isRetry && _intendedThreadId == threadId) {
+        _scheduleRetry(threadId);
+      } else {
+        _connectedThreadId = null;
+      }
+      notifyListeners();
     }
+  }
+
+  /// A previously-ready socket for [threadId] dropped (error or close).
+  /// Reconnects only while the user still intends that thread open.
+  void _handleSocketDrop(String threadId) {
+    final dead = _channel;
+    _channel = null;
+    _connectedThreadId = null;
+    dead?.sink.close();
+    // onError and onDone can both fire for one dead socket — only the
+    // first schedules a retry.
+    if (_retryTimer != null) return;
+    if (_intendedThreadId == threadId) {
+      _scheduleRetry(threadId);
+    }
+    notifyListeners();
+  }
+
+  /// Schedules the next bounded reconnect for [threadId] (single Timer —
+  /// no loops, no polling). [ChatProvider.shouldReconnect] keeps it finite.
+  void _scheduleRetry(String threadId) {
+    if (!shouldReconnect(_retryAttempts)) {
+      // Out of attempts: stop hinting and let sends surface the offline
+      // error path (reopening the screen retries fresh).
+      connectionStatus = null;
+      return;
+    }
+    _retryAttempts++;
+    connectionStatus = 'Reconnecting…';
+    _retryTimer?.cancel();
+    _retryTimer = Timer(reconnectDelay, () {
+      _retryTimer = null;
+      // A different thread may have been opened meanwhile — never retry
+      // against a screen that is no longer up.
+      if (_intendedThreadId != threadId) return;
+      _openSocket(threadId, isRetry: true);
+    });
+  }
+
+  void _cancelRetry() {
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    _retryAttempts = 0;
+    connectionStatus = null;
   }
 
   Future<void> _closeSocket() async {
@@ -226,12 +336,20 @@ class ChatProvider extends ChangeNotifier {
     _connectedThreadId = null;
   }
 
-  /// Call when leaving the chat screen.
-  Future<void> disconnect() => _closeSocket();
+  /// Call when leaving the chat screen. Permanently stops reconnecting
+  /// for the open thread — any pending retry timer is cancelled.
+  Future<void> disconnect() {
+    _intendedThreadId = null;
+    _cancelRetry();
+    return _closeSocket();
+  }
 
   /// Clears every trace of this account's conversations — used on sign-out
   /// so another account on the same device never sees them.
   Future<void> reset() async {
+    _sessionStamp++;
+    _intendedThreadId = null;
+    _cancelRetry();
     await _closeSocket();
     _threads.clear();
     _openThreads.clear();
@@ -303,6 +421,20 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  @override
+  void dispose() {
+    // Never leave a dangling reconnect timer holding a dead provider.
+    _cancelRetry();
+    // Drop the refs first: closing the sink fires onDone, whose
+    // identical() check must fail — never notify a disposed notifier.
+    final channel = _channel;
+    _channel = null;
+    _connectedThreadId = null;
+    _intendedThreadId = null;
+    channel?.sink.close();
+    super.dispose();
+  }
+
   ChatThread _threadFromApi(Map<String, dynamic> json, {String? fallbackVendorName}) {
     return ChatThread(
       id: json['id'] as String,
@@ -314,6 +446,7 @@ class ChatProvider extends ChangeNotifier {
       lastMessageAt:
           DateTime.tryParse(json['last_message_at'] as String? ?? '')?.toLocal(),
       messageCount: (json['message_count'] as num?)?.toInt() ?? 0,
+      serverUnreadCount: (json['unread_count'] as num?)?.toInt(),
       messages: [
         for (final m in (json['messages'] as List?) ?? [])
           ChatMessage.fromApi(m as Map<String, dynamic>, myUserId: _myUserId),

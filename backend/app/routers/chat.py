@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.db import get_db
 from app.core.deps import get_current_user, require_vendor
+from app.models.order import Order
 from app.models.social import Chat, Message
 from app.models.user import User
 from app.models.vendor import Vendor
@@ -66,7 +67,46 @@ async def start_or_get_chat(payload: ChatCreate, user: User = Depends(get_curren
     """Idempotent per (customer, vendor): returns the ongoing thread for
     this pair whether or not it was started from a specific order. This
     prevents duplicate threads when a customer opens chat sometimes from an
-    order and sometimes from the store profile."""
+    order and sometimes from the store profile.
+
+    A payload.order_id is now validated: only a party of THAT order (its
+    customer or its store's owner) may link it to a thread, and only to a
+    thread with the same store — previously any UUID was accepted, so one
+    customer could graft another customer's order id onto their own chat."""
+    if payload.order_id:
+        order_result = await db.execute(select(Order).where(Order.id == payload.order_id))
+        order = order_result.scalar_one_or_none()
+        if not order:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Order not found")
+        if order.vendor_id != payload.vendor_id:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "That order does not belong to this store",
+            )
+        vendor_of_order = (
+            await db.execute(select(Vendor).where(Vendor.id == order.vendor_id))
+        ).scalar_one_or_none()
+        caller_is_party = order.customer_id == user.id or (
+            vendor_of_order and vendor_of_order.owner_id == user.id
+        )
+        if not caller_is_party:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized to link this order")
+
+    # Server-side vendor scoping (mirrors every /vendor/me* route): a vendor
+    # account may only open chat threads for its own store, never for other
+    # stores' vendor_id.
+    if user.role.value == "vendor":
+        own_store = (
+            await db.execute(
+                select(Vendor).where(Vendor.id == payload.vendor_id, Vendor.owner_id == user.id)
+            )
+        ).scalar_one_or_none()
+        if not own_store:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "Vendors may only chat with customers of their own store",
+            )
+
     base_stmt = (
         select(Chat)
         .options(selectinload(Chat.messages))

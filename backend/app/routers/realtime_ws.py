@@ -94,6 +94,8 @@ async def track_order(websocket: WebSocket, order_id: uuid.UUID, token: str = Qu
             # Customers don't send data on this channel; just keep the socket alive.
             await websocket.receive_text()
     except WebSocketDisconnect:
+        pass
+    finally:
         connection_manager.disconnect_from_order(order_id, websocket)
 
 
@@ -132,22 +134,55 @@ async def chat_channel(websocket: WebSocket, chat_id: uuid.UUID, token: str = Qu
     await connection_manager.connect_to_chat(chat_id, websocket)
     try:
         while True:
-            data = await websocket.receive_json()
-            async with AsyncSessionLocal() as db:
-                chat_result = await db.execute(select(Chat).where(Chat.id == chat_id))
-                chat = chat_result.scalar_one_or_none()
-                if not chat:
-                    continue
+            try:
+                data = await websocket.receive_json()
+            except Exception:
+                # receive_json raises for malformed frames too; any error that
+                # isn't a clean disconnect means the socket is unusable.
+                break
 
-                message = Message(
-                    chat_id=chat_id,
-                    sender_id=uuid.UUID(user_id),
-                    content=data.get("content"),
-                    image_url=data.get("image_url"),
-                )
-                db.add(message)
-                await db.commit()
-                await db.refresh(message)
+            content = data.get("content")
+            image_url = data.get("image_url")
+            if isinstance(content, str):
+                content = content.strip()[:2000] or None  # messages.content is String(2000)
+            else:
+                content = None
+            if isinstance(image_url, str):
+                image_url = image_url[:500]  # messages.image_url is String(500)
+            else:
+                image_url = None
+            if not content and not image_url:
+                continue
+
+            message = None
+            try:
+                async with AsyncSessionLocal() as db:
+                    chat_result = await db.execute(select(Chat).where(Chat.id == chat_id))
+                    if not chat_result.scalar_one_or_none():
+                        continue
+
+                    message = Message(
+                        chat_id=chat_id,
+                        sender_id=uuid.UUID(user_id),
+                        content=content,
+                        image_url=image_url,
+                    )
+                    db.add(message)
+                    await db.commit()
+                    await db.refresh(message)
+            except Exception:
+                # A transient DB failure previously escaped the loop and
+                # killed the handler, leaving the socket registered in
+                # connection_manager (a leak) while the client saw the send
+                # silently drop. Report it and keep the connection alive.
+                try:
+                    await websocket.send_json({"type": "error", "detail": "Message could not be saved. Try again."})
+                except Exception:
+                    break
+                continue
+
+            if message is None:
+                continue
 
             await connection_manager.broadcast_to_chat(
                 chat_id,
@@ -161,4 +196,9 @@ async def chat_channel(websocket: WebSocket, chat_id: uuid.UUID, token: str = Qu
                 },
             )
     except WebSocketDisconnect:
+        pass
+    finally:
+        # Registered-connection cleanup must run on EVERY exit path —
+        # WebSocketDisconnect is the common one, but connection failures,
+        # malformed frames and DB errors previously exited without it.
         connection_manager.disconnect_from_chat(chat_id, websocket)

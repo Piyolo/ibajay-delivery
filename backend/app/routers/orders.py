@@ -1,8 +1,9 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -10,7 +11,7 @@ from app.core.db import get_db
 from app.core.deps import get_current_user, require_customer, require_vendor
 from app.models.enums import DeliveryMethod, OrderStatus
 from app.models.food import FoodItem, FoodOption, FoodOptionChoice
-from app.models.order import Order, OrderItem, OrderStatusHistory
+from app.models.order import CheckoutIdempotencyKey, Order, OrderItem, OrderStatusHistory
 from app.models.social import Promotion
 from app.models.user import Address, User
 from app.models.vendor import Vendor
@@ -27,16 +28,41 @@ from app.services.notifications import notify_order_event
 
 router = APIRouter(prefix="/orders", tags=["Orders"])
 
-# Valid forward transitions a vendor can make. Cancellation is allowed from
-# most pre-delivery states and is handled separately via /cancel.
+# Valid forward transitions a vendor can make. Cancellations are NOT part of
+# this map on purpose: they go through /cancel so a reason is always recorded
+# (the beta bug: PATCH /status let an order disappear with no reason data).
 NEXT_STATUS = {
-    OrderStatus.pending: {OrderStatus.accepted, OrderStatus.cancelled},
-    OrderStatus.accepted: {OrderStatus.preparing, OrderStatus.cancelled},
-    OrderStatus.preparing: {OrderStatus.ready, OrderStatus.cancelled},
+    OrderStatus.pending: {OrderStatus.accepted},
+    OrderStatus.accepted: {OrderStatus.preparing},
+    OrderStatus.preparing: {OrderStatus.ready},
     OrderStatus.ready: {OrderStatus.out_for_delivery, OrderStatus.completed},  # completed covers pickup collection
     OrderStatus.out_for_delivery: {OrderStatus.delivered},
     OrderStatus.delivered: {OrderStatus.completed},
 }
+
+# Documented beta cancellation policy (Master Business Plan §21): customers
+# may back out while the order is still undecided or just accepted; once the
+# kitchen starts preparing it, cancellation is restricted to the vendor (who
+# records the reason and covers hand-offs like rider issues mid-delivery).
+CUSTOMER_CANCELLABLE = {OrderStatus.pending, OrderStatus.accepted}
+VENDOR_CANCELLABLE = {
+    OrderStatus.pending,
+    OrderStatus.accepted,
+    OrderStatus.preparing,
+    OrderStatus.ready,
+    OrderStatus.out_for_delivery,
+}
+
+
+def can_cancel_order(status: OrderStatus, *, is_customer: bool) -> bool:
+    """Single source of truth for the cancellation rule (also unit-tested)."""
+    allowed = CUSTOMER_CANCELLABLE if is_customer else VENDOR_CANCELLABLE
+    return status in allowed
+
+
+# A (user, idempotency-key) pair stops being replayable after this long;
+# retries happen within seconds/minutes of the first attempt.
+IDEMPOTENCY_KEY_TTL = timedelta(hours=24)
 
 
 def _generate_order_number() -> str:
@@ -122,9 +148,17 @@ async def _selected_options_price(
 @router.post("/checkout", response_model=OrderOut, status_code=status.HTTP_201_CREATED)
 async def checkout(
     payload: CheckoutRequest,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=72),
     user: User = Depends(require_customer),
     db: AsyncSession = Depends(get_db),
 ):
+    # Duplicate-submission protection: the client generates one UUID per
+    # checkout session and sends it on every attempt (first call + retries
+    # after a timeout). The first attempt stores the key alongside the order
+    # in one transaction; a retry finds it and replays the SAME order, so a
+    # double-tap or a 25s-timeout retry can never create a second paid order.
+    key = (idempotency_key or "").strip() or None
+
     vendor_result = await db.execute(
         select(Vendor).options(selectinload(Vendor.delivery_settings)).where(Vendor.id == payload.vendor_id)
     )
@@ -133,6 +167,33 @@ async def checkout(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Vendor not found")
     if vendor.is_paused or not vendor.is_open:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Store is currently closed")
+
+    if key:
+        # Purge this user's long-spent keys, then short-circuit when the key
+        # already produced an order for this user (regular replay path).
+        cutoff = datetime.now(timezone.utc) - IDEMPOTENCY_KEY_TTL
+        await db.execute(
+            delete(CheckoutIdempotencyKey).where(
+                CheckoutIdempotencyKey.user_id == user.id,
+                CheckoutIdempotencyKey.created_at < cutoff,
+            )
+        )
+        row = (
+            await db.execute(
+                select(CheckoutIdempotencyKey).where(
+                    CheckoutIdempotencyKey.user_id == user.id,
+                    CheckoutIdempotencyKey.key == key,
+                )
+            )
+        ).scalar_one_or_none()
+        if row:
+            prior = (
+                await db.execute(
+                    select(Order).options(selectinload(Order.items)).where(Order.id == row.order_id)
+                )
+            ).scalar_one_or_none()
+            if prior:
+                return prior
 
     settings_ = vendor.delivery_settings
     if payload.delivery_method == DeliveryMethod.delivery and not settings_.delivery_enabled:
@@ -236,7 +297,43 @@ async def checkout(
     db.add(OrderStatusHistory(order_id=order.id, status=OrderStatus.pending, note="Order placed"))
     if promotion:
         promotion.times_used += 1
-    await db.commit()
+
+    if key:
+        # The key row commits in the SAME transaction as the order: either
+        # both exist or neither does. A concurrent duplicate request that
+        # raced us to the unique (user, key) constraint rolls its whole
+        # order back below, then replays the winner — the race can never
+        # produce two orders for one key.
+        db.add(CheckoutIdempotencyKey(user_id=user.id, key=key, order_id=order.id))
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        # Distinguish a key race from an unrelated failure (rare order-number
+        # collision): the key race hits OUR unique constraint, so replay the
+        # winner. Anything else keeps the loud 500 it deserves.
+        if key and "uq_checkout_key_user_id_key" in str(exc.orig):
+            await db.rollback()
+            row = (
+                await db.execute(
+                    select(CheckoutIdempotencyKey).where(
+                        CheckoutIdempotencyKey.user_id == user.id,
+                        CheckoutIdempotencyKey.key == key,
+                    )
+                )
+            ).scalar_one_or_none()
+            if row:
+                prior = (
+                    await db.execute(
+                        select(Order).options(selectinload(Order.items)).where(Order.id == row.order_id)
+                    )
+                ).scalar_one_or_none()
+                if prior:
+                    return prior
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "This order was just processed. Refresh and try again.",
+            ) from exc
+        raise
     await db.refresh(order, attribute_names=["items"])
 
     await notify_order_event(db, vendor.owner_id, order, event="new_order")
@@ -262,23 +359,43 @@ async def validate_promo(
 
 
 @router.get("/my-orders", response_model=list[OrderOut])
-async def my_orders(user: User = Depends(require_customer), db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
+async def my_orders(
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    status_filter: OrderStatus | None = Query(default=None, alias="status"),
+    user: User = Depends(require_customer),
+    db: AsyncSession = Depends(get_db),
+):
+    """Paginated order history.
+
+    Backwards-compatible: beta clients read the full list, and default 100
+    covers any realistic beta history while making later "load more" paging
+    possible (offset param). Ordered desc, so the first page carries the
+    recent orders clients show first."""
+    stmt = (
         select(Order)
         .options(selectinload(Order.items))
         .where(Order.customer_id == user.id)
         .order_by(Order.created_at.desc())
     )
+    if status_filter:
+        stmt = stmt.where(Order.status == status_filter)
+    result = await db.execute(stmt.offset(offset).limit(limit))
     return result.scalars().unique().all()
 
 
 @router.get("/vendor/inbox", response_model=list[OrderOut])
 async def vendor_inbox(
     order_status: OrderStatus | None = None,
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
     user: User = Depends(require_vendor),
     db: AsyncSession = Depends(get_db),
 ):
-    """Vendor's order management dashboard: filter by status (New/Preparing/Out for Delivery/Completed)."""
+    """Vendor's order management dashboard: filter by status (New/Preparing/Out for Delivery/Completed).
+
+    Paginated like /my-orders: the vendor app's poll re-downloads this
+    repeatedly, so an unbounded history would slowly grow every 25 s request."""
     vendor_result = await db.execute(select(Vendor).where(Vendor.owner_id == user.id))
     vendor = vendor_result.scalar_one_or_none()
     if not vendor:
@@ -287,10 +404,9 @@ async def vendor_inbox(
     stmt = select(Order).options(selectinload(Order.items)).where(Order.vendor_id == vendor.id)
     if order_status:
         stmt = stmt.where(Order.status == order_status)
-    stmt = stmt.order_by(Order.created_at.desc())
+    stmt = stmt.order_by(Order.created_at.desc()).offset(offset).limit(limit)
 
-    result = await db.execute(stmt)
-    orders = result.scalars().unique().all()
+    orders = (await db.execute(stmt)).scalars().unique().all()
 
     # Batch-resolve customer profiles for the inbox display.
     customer_ids = {o.customer_id for o in orders}
@@ -401,6 +517,24 @@ async def cancel_order(
 
     if order.status in {OrderStatus.delivered, OrderStatus.completed, OrderStatus.cancelled}:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Order can no longer be cancelled")
+
+    # Per-party policy (Master Business Plan §21): customers may cancel only
+    # while the order is undecided or freshly accepted — after that the food
+    # is being made and the store loses revenue; the store itself may cancel
+    # any pre-delivery order (out of stock, no rider, missed the window...).
+    is_customer = bool(is_owner_customer)
+    if not can_cancel_order(order.status, is_customer=is_customer):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "This order can no longer be cancelled — it is already being prepared. "
+            "You can message the store about it instead.",
+        )
+
+    reason = (reason or "").strip()
+    if not reason:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "A cancellation reason is required")
+    if len(reason) > 500:
+        reason = reason[:500]
 
     order.status = OrderStatus.cancelled
     order.cancellation_reason = reason

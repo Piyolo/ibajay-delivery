@@ -251,8 +251,13 @@ async def forgot_password_start(payload: ForgotPasswordStart, db: AsyncSession =
     return {"message": "If that email is registered, a code has been sent."}
 
 
-@router.post("/forgot-password/reset")
+@router.post(
+    "/forgot-password/reset",
+    dependencies=[Depends(per_ip_rate_limit("forgot-password-reset", limit=10))],
+)
 async def forgot_password_reset(payload: ResetPassword, db: AsyncSession = Depends(get_db)):
+    # Per-IP 10/min: spreads out attempts so a fast loop can't hammer the
+    # endpoint, while honest humans retrying a mistyped code are unaffected.
     result = await db.execute(
         select(EmailVerification)
         .where(
@@ -265,10 +270,19 @@ async def forgot_password_reset(payload: ResetPassword, db: AsyncSession = Depen
     verification = result.scalars().first()
     if not verification:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No pending reset request found")
+    # SAME cap as registration OTP verify (this endpoint previously only
+    # incremented attempts and never read them — every wrong guess was free,
+    # so a 6-digit code was brute-forceable at line speed within its 5-minute
+    # expiry window).
+    if verification.attempts >= settings.OTP_MAX_ATTEMPTS:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "Too many incorrect attempts. Please request a new code.",
+        )
     if datetime.now(timezone.utc) > verification.expires_at.replace(tzinfo=timezone.utc):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Code expired. Please request a new one.")
+    verification.attempts += 1
     if verification.otp_code != payload.otp_code:
-        verification.attempts += 1
         await db.commit()
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Incorrect code")
 

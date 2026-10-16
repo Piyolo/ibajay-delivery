@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Numeric, String, func
+from sqlalchemy import DateTime, Enum, ForeignKey, Numeric, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -15,12 +15,12 @@ class Order(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     order_number: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)  # human-friendly, e.g. ORD-20260822-0001
 
-    customer_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    vendor_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("vendors.id"), nullable=False)
+    customer_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), index=True, nullable=False)
+    vendor_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("vendors.id"), index=True, nullable=False)
 
     delivery_method: Mapped[DeliveryMethod] = mapped_column(Enum(DeliveryMethod), nullable=False)
     payment_method: Mapped[PaymentMethod] = mapped_column(Enum(PaymentMethod), nullable=False)
-    status: Mapped[OrderStatus] = mapped_column(Enum(OrderStatus), default=OrderStatus.pending, nullable=False)
+    status: Mapped[OrderStatus] = mapped_column(Enum(OrderStatus), default=OrderStatus.pending, index=True, nullable=False)
 
     # Snapshot of delivery address at order time (address may change later)
     delivery_address: Mapped[str | None] = mapped_column(String(500), nullable=True)
@@ -56,7 +56,7 @@ class OrderItem(Base):
     __tablename__ = "order_items"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    order_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("orders.id", ondelete="CASCADE"), nullable=False)
+    order_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("orders.id", ondelete="CASCADE"), index=True, nullable=False)
     food_item_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("food_items.id"), nullable=False)
 
     # Snapshot fields so historical orders remain accurate even if the menu changes later
@@ -74,9 +74,29 @@ class OrderStatusHistory(Base):
     __tablename__ = "order_status_history"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    order_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("orders.id", ondelete="CASCADE"), nullable=False)
+    order_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("orders.id", ondelete="CASCADE"), index=True, nullable=False)
     status: Mapped[OrderStatus] = mapped_column(Enum(OrderStatus), nullable=False)
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
     changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     order: Mapped[Order] = relationship(back_populates="status_history")
+
+
+class CheckoutIdempotencyKey(Base):
+    """Dedupes checkout retries: POST /orders/checkout may include an
+    `Idempotency-Key` header (a client-generated UUID). The first request for
+    a (user, key) pair stores its order here in the SAME transaction as the
+    order itself; a retried request finds the row and gets the original order
+    back instead of a second paid "pending" order.
+
+    Rows are self-cleaning: every checkout purges the caller's keys older
+    than 24 hours (retries happen within seconds/minutes, not days)."""
+    __tablename__ = "checkout_idempotency_keys"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    key: Mapped[str] = mapped_column(String(72), nullable=False)
+    order_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("orders.id", ondelete="CASCADE"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("user_id", "key", name="uq_checkout_key_user_id_key"),)

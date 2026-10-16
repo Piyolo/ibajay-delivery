@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.db import get_db
 from app.core.deps import require_vendor
+from app.core.manila_time import manila_date, manila_days_back
 from app.models.enums import OrderStatus
 from app.models.food import FoodCategory, FoodItem, FoodImage, FoodOption, FoodOptionChoice
 from app.models.order import Order
@@ -383,16 +384,21 @@ async def delete_menu_item(
 @router.get("/analytics", response_model=AnalyticsOut)
 async def analytics(user: User = Depends(require_vendor), db: AsyncSession = Depends(get_db)):
     vendor = await _get_vendor(user, db)
-    today = datetime.now(timezone.utc).date()
-    week_start = today - timedelta(days=6)
+    # "Today" means Manila time to match how the store owner reads their
+    # dashboard: a UTC split moved every evening order to the next calendar
+    # day and made "today's revenue" flip mid-afternoon.
+    week_start, window_start, now_utc = manila_days_back(7)
 
     result = await db.execute(
-        select(Order)
-        .where(Order.vendor_id == vendor.id, func.date(Order.created_at) >= week_start)
+        select(Order).where(
+            Order.vendor_id == vendor.id,
+            Order.created_at >= window_start,  # covers 00:00 PHT of 6 days ago
+            Order.created_at <= now_utc,
+        )
     )
     orders = result.scalars().all()
 
-    today_orders = [o for o in orders if o.created_at.date() == today]
+    today_orders = [o for o in orders if manila_date(o.created_at) == week_start + timedelta(days=6)]
     non_cancelled_today = [o for o in today_orders if o.status != OrderStatus.cancelled]
     active_statuses = {
         OrderStatus.accepted,
@@ -404,7 +410,7 @@ async def analytics(user: User = Depends(require_vendor), db: AsyncSession = Dep
     week: list[DayRevenue] = []
     for offset in range(7):
         day = week_start + timedelta(days=offset)
-        day_orders = [o for o in orders if o.created_at.date() == day]
+        day_orders = [o for o in orders if manila_date(o.created_at) == day]
         week.append(
             DayRevenue(
                 date=day.isoformat(),
@@ -449,6 +455,10 @@ async def create_promotion(
 
     if payload.discount_type == "percent" and payload.discount_value > 100:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Percentage discount cannot exceed 100%")
+    if payload.discount_value <= 0:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Discount must be greater than zero")
+    if payload.min_subtotal < 0:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Minimum spend cannot be negative")
 
     # Promo codes are unique per store.
     if payload.code:
@@ -484,7 +494,21 @@ async def update_promotion(
     db: AsyncSession = Depends(get_db),
 ):
     promo = await _own_promotion(promotion_id, user, db)
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    updates = payload.model_dump(exclude_unset=True)
+
+    # The create endpoint validates these; PATCH previously applied any
+    # value wholesale, so a discount_value of 500 (or a negative minimum
+    # spend) could turn an auto-applied promotion into free food.
+    effective_type = updates.get("discount_type", promo.discount_type)
+    effective_value = updates.get("discount_value", promo.discount_value)
+    if effective_type == "percent" and float(effective_value) > 100:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Percentage discount cannot exceed 100%")
+    if float(effective_value) <= 0:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Discount must be greater than zero")
+    if float(updates.get("min_subtotal", promo.min_subtotal)) < 0:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Minimum spend cannot be negative")
+
+    for field, value in updates.items():
         setattr(promo, field, value)
     await db.commit()
     await db.refresh(promo)

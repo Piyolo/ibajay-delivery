@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.db import get_db
 from app.core.deps import require_admin
+from app.core.manila_time import manila_date, manila_days_back
 from app.models.enums import DeliveryMethod, OrderStatus, UserRole
 from app.models.food import FoodCategory, FoodItem
 from app.models.order import Order, OrderStatusHistory
@@ -90,31 +91,35 @@ class OrderAdminOut(BaseModel):
 
 @router.get("/overview")
 async def overview(user: User = Depends(require_admin), db: AsyncSession = Depends(get_db)):
-    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    # Pull a window that safely covers the last 7 MANILA days: Manila runs
+    # 8 hours ahead of UTC, so 00:00 PHT of 6 days ago can be as early as
+    # 6 days + 8 hours before now in UTC.
+    week_start, window_start, _now_utc = manila_days_back(7)
 
     vendors = (await db.execute(select(Vendor))).scalars().all()
     customers_total = await db.scalar(
         select(func.count()).select_from(User).where(User.role == UserRole.customer)
     )
     orders_week = (
-        await db.execute(select(Order).where(Order.created_at >= week_ago))
+        await db.execute(select(Order).where(Order.created_at >= window_start))
     ).scalars().all()
     active_orders = await db.scalar(
         select(func.count()).select_from(Order).where(Order.status.in_(_ACTIVE_STATUSES))
     )
 
+    today = week_start + timedelta(days=6)
     revenue_today = sum(
         float(o.total)
         for o in orders_week
-        if o.status != OrderStatus.cancelled and o.created_at.date() == datetime.now(timezone.utc).date()
+        if o.status != OrderStatus.cancelled and manila_date(o.created_at) == today
     )
     revenue_week = sum(float(o.total) for o in orders_week if o.status != OrderStatus.cancelled)
 
-    # 7-day revenue series for the dashboard chart.
+    # 7-day revenue series for the dashboard chart, bucketed by Manila date.
     week_series = []
-    for offset in range(6, -1, -1):
-        day = (datetime.now(timezone.utc) - timedelta(days=offset)).date()
-        day_orders = [o for o in orders_week if o.created_at.date() == day]
+    for offset in range(7):
+        day = week_start + timedelta(days=offset)
+        day_orders = [o for o in orders_week if manila_date(o.created_at) == day]
         week_series.append({
             "date": day.isoformat(),
             "revenue": sum(float(o.total) for o in day_orders if o.status != OrderStatus.cancelled),
@@ -126,10 +131,7 @@ async def overview(user: User = Depends(require_admin), db: AsyncSession = Depen
         "vendors_open": sum(1 for v in vendors if v.is_open and not v.is_paused),
         "vendors_verified": sum(1 for v in vendors if v.is_verified),
         "customers_total": customers_total or 0,
-        "orders_today": sum(
-            1 for o in orders_week
-            if o.created_at.date() == datetime.now(timezone.utc).date()
-        ),
+        "orders_today": sum(1 for o in orders_week if manila_date(o.created_at) == today),
         "orders_this_week": len(orders_week),
         "orders_active": active_orders or 0,
         "revenue_today": revenue_today,

@@ -14,6 +14,16 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    # Fail loudly instead of silently starting with forgeable tokens: if the
+    # Render env ever loses JWT_SECRET_KEY, this turns a silent auth bypass
+    # risk into a visible boot failure that shows up in the deploy logs.
+    if settings.ENVIRONMENT == "production" and (
+        not settings.JWT_SECRET_KEY or settings.JWT_SECRET_KEY == "CHANGE_ME_IN_PRODUCTION"
+    ):
+        raise RuntimeError(
+            "JWT_SECRET_KEY is unset (or still the placeholder default) in "
+            "production. Set it in the Render dashboard before deploying."
+        )
     # There is no Alembic migration history yet (create_tables.py is run by
     # hand), so new tables would otherwise be forgotten on deploy and every
     # request touching them 500s. create_all is idempotent: it only creates

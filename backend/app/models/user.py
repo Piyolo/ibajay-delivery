@@ -44,7 +44,7 @@ class Address(Base):
     __tablename__ = "addresses"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
 
     label: Mapped[str] = mapped_column(String(50), default="Home")  # Home, Work, Other
     full_address: Mapped[str] = mapped_column(String(500), nullable=False)

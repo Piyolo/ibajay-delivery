@@ -104,3 +104,28 @@ Also in this deploy: `POST /auth/register/start` and `/auth/forgot-password/star
 - [ ] OTP registration email arrives (if 502: check Resend domain verification for `ibajayeats.linkpc.net`)
 - [ ] Admin console: sign in, confirm sidebar counts match live data
 - [ ] Rotate admin password; revoke the `09000000001` demo account after tester onboarding if desired
+
+---
+
+## Beta round-3 (2026-10-16) - production-readiness pass
+
+Recorded in `MISSION_REPORT.md` (details, evidence and exact command output there). Commits: backend 132c3f5, vendor_app 08fd71, customer_app 5e56cb5. Verified: pytest **66 passed**, both apps analyze-clean + tests green (vendor 11/11, customer 8/8).
+
+| Item | Status |
+| --- | --- |
+| Checkout idempotency (Idempotency-Key, 24 h replay table) | OK - same key replays the original order; edited cart gets a fresh key; both apps pin it |
+| Cancel policy (plan §21): customer pending/ccepted only, vendor pre-delivery only, reason required | OK - enforced server-side; UIs aligned (customer hides/greys the button, vendor uses reason dialog) |
+| Reset-OTP brute-force lockout (OTP_MAX_ATTEMPTS + 10/min per-IP) | OK |
+| Hot-path FK composite indexes | migration  05_hot_indexes_and_checkout_keys COMMITTED, **NOT yet applied to Neon** - run lembic upgrade head on the next backend deploy (additive/idempotent) |
+| Analytics + admin overview + vendor dashboard day-bucketing | OK - all now Philippine-time (UTC+8), pp/core/manila_time.py |
+| Input caps: cart size, vendor portal schemas, promo PATCH, checkout payload | OK |
+| WS chat ownership + order_id checks; JWT-secret production boot guard | OK |
+| Vendor app round-3: per-order busy-guards, enforced reject reasons, name-only profile edits, menu-save rollback, non-blocking registration uploads, bounded GPS stream, Mark-as-Delivered only on success, PH-day dashboard | OK |
+| Customer app round-3: idempotent checkout header, cancel double-tap guard, terminal-status poll stop, lifecycle pause/resume, per-user cart + prefs, notifications auto-read, crash-proof cart restore | OK |
+| PUT /auth/profile honesty: both apps show email/mobile read-only (no server endpoint exists) | OK |
+
+### Updated deploy ordering (round-3)
+
+**Neon is documented at  04_cancelled_notification (head as of the prior round). The next backend deploy must also run lembic upgrade head to bring  05_hot_indexes_and_checkout_keys.** Migration 005 is additive (IF NOT EXISTS) - safe while new clients and old clients coexist. The checkout_idempotency_keys table also auto-creates via create_all, but the FK indexes only ship with the migration.
+
+Everything in "Remaining work before go-live" above still stands (FCM config files, Render secrets inventory + admin CORS origin, admin password rotation, deploy verification). Nothing in round-3 changed those steps.

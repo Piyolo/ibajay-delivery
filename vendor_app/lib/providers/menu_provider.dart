@@ -32,8 +32,8 @@ class MenuProvider extends ChangeNotifier {
     }
   }
 
-  /// Pulls the live menu from the backend. Falls back to the local list
-  /// (kept from mock seed / last sync) when unreachable.
+  /// Pulls the live menu from the backend. On failure it keeps the local
+  /// list (last sync) and records [lastError].
   Future<void> load() async {
     _isLoading = true;
     notifyListeners();
@@ -51,7 +51,8 @@ class MenuProvider extends ChangeNotifier {
   }
 
   /// Adds [item] (with a temporary local id) and swaps in the server's
-  /// copy once created.
+  /// copy once created. A failed create removes the phantom temp item so
+  /// the menu never shows something the backend doesn't have.
   Future<void> addItem(FoodItem item) async {
     _items.add(item);
     notifyListeners();
@@ -62,6 +63,7 @@ class MenuProvider extends ChangeNotifier {
       if (index != -1) _items[index] = serverItem;
       lastError = null;
     } on StoreApiException catch (e) {
+      _items.removeWhere((f) => f.id == item.id);
       lastError = e.message;
     }
     notifyListeners();

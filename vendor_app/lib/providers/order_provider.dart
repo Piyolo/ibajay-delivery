@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import '../models/order.dart';
+import '../models/vendor.dart';
 import '../services/api_client.dart';
 import '../services/vendor_api_service.dart';
 
@@ -13,8 +14,15 @@ class OrderProvider extends ChangeNotifier {
   bool _isLoading = false;
   String? lastError;
 
+  /// Orders with an action (accept/reject/status advance) currently in
+  /// flight — double-taps are ignored until the call settles.
+  final Set<String> _busyOrderIds = {};
+
   List<VendorOrder> get all => List.unmodifiable(_orders);
   bool get isLoading => _isLoading;
+
+  /// Whether an action for [orderId] is still awaiting the backend.
+  bool isBusy(String orderId) => _busyOrderIds.contains(orderId);
 
   List<VendorOrder> byStatus(List<OrderStatus> statuses) =>
       _orders.where((o) => statuses.contains(o.status)).toList()
@@ -27,11 +35,10 @@ class OrderProvider extends ChangeNotifier {
   List<VendorOrder> get history =>
       byStatus([OrderStatus.delivered, OrderStatus.completed, OrderStatus.cancelled]);
 
-  List<VendorOrder> get todaysOrders {
-    final now = DateTime.now();
-    return _orders.where((o) =>
-        o.placedAt.year == now.year && o.placedAt.month == now.month && o.placedAt.day == now.day).toList();
-  }
+  /// Today's orders, bucketed by PH calendar day (UTC+8) so the dashboard
+  /// matches the backend's analytics for evening orders.
+  List<VendorOrder> get todaysOrders =>
+      _orders.where((o) => isSamePhDay(o.placedAt)).toList();
 
   double get todaysRevenue => todaysOrders
       .where((o) => o.status != OrderStatus.cancelled)
@@ -47,8 +54,8 @@ class OrderProvider extends ChangeNotifier {
     }
   }
 
-  /// Pulls the live inbox. Falls back to the local list (mock seed / last
-  /// sync) when unreachable.
+  /// Pulls the live inbox. On failure it keeps the local list (last sync)
+  /// and records [lastError].
   Future<void> load() async {
     _isLoading = true;
     notifyListeners();
@@ -76,7 +83,9 @@ class OrderProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> acceptOrder(String id) => _setStatus(id, OrderStatus.accepted);
+  /// Accepts the order. Returns false when the action was skipped (already
+  /// in flight) or failed — [lastError] carries the failure message.
+  Future<bool> acceptOrder(String id) => _setStatus(id, OrderStatus.accepted);
 
   /// POST /tracking/{id}/start: the backend flips the order to
   /// out_for_delivery and broadcasts to the customer's tracking channel.
@@ -99,32 +108,55 @@ class OrderProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> rejectOrder(String id) =>
-      _api.cancelOrder(id, 'Rejected by store').then((_) => _applyLocal(id, OrderStatus.cancelled))
-          .catchError((Object e) {
-        lastError = e is StoreApiException ? e.message : e.toString();
-        notifyListeners();
-      });
-
-  Future<void> advanceStatus(String id) async {
-    final order = findById(id);
-    if (order == null) return;
-    final next = order.status.nextFor(order.fulfillmentType);
-    if (next != null) await _setStatus(id, next);
+  /// Rejects (cancels) the order with the vendor's chosen reason. Returns
+  /// false when skipped (already in flight) or failed — [lastError] carries
+  /// the failure message.
+  Future<bool> rejectOrder(String id,
+      {String reason = 'Rejected by store'}) async {
+    if (!_busyOrderIds.add(id)) return false;
+    try {
+      await _api.cancelOrder(id, reason);
+      _applyLocal(id, OrderStatus.cancelled);
+      return true;
+    } on StoreApiException catch (e) {
+      lastError = e.message;
+      notifyListeners();
+      return false;
+    } finally {
+      _busyOrderIds.remove(id);
+      notifyListeners();
+    }
   }
 
-  Future<void> _setStatus(String id, OrderStatus status) async {
+  /// Moves the order to its next status. Returns false when there is no
+  /// next step, the action was skipped (already in flight), or the backend
+  /// rejected it — [lastError] carries the failure message.
+  Future<bool> advanceStatus(String id) async {
     final order = findById(id);
-    if (order == null) return;
+    if (order == null) return false;
+    final next = order.status.nextFor(order.fulfillmentType);
+    if (next == null) return false;
+    return _setStatus(id, next);
+  }
+
+  Future<bool> _setStatus(String id, OrderStatus status) async {
+    final order = findById(id);
+    if (order == null) return false;
+    if (!_busyOrderIds.add(id)) return false;
     final previous = order.status;
     order.status = status;
     notifyListeners();
     try {
       await _api.updateOrderStatus(id, status.key);
       lastError = null;
+      return true;
     } on StoreApiException catch (e) {
       order.status = previous;
       lastError = e.message;
+      notifyListeners();
+      return false;
+    } finally {
+      _busyOrderIds.remove(id);
       notifyListeners();
     }
   }

@@ -95,10 +95,11 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
     _positionSub?.cancel();
     setState(() => _tracking = true);
     _positionSub = Geolocator.getPositionStream(
+      // No timeLimit: a long delivery must not kill the stream mid-route —
+      // the onError UI below is the fallback when the stream dies anyway.
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.high,
         distanceFilter: 15,
-        timeLimit: Duration(minutes: 5),
       ),
     ).listen(
       (position) async {
@@ -136,8 +137,19 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
 
   Future<void> _markDelivered() async {
     final provider = context.read<OrderProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+    // Only end tracking (and leave the screen) once the backend confirms
+    // the transition — a failed PATCH keeps GPS pings running so the
+    // customer doesn't lose the delivery mid-route.
+    final ok = await provider.advanceStatus(widget.orderId);
+    if (!ok) {
+      messenger.showSnackBar(SnackBar(
+        content: Text(
+            'Could not mark as delivered — ${provider.lastError ?? 'try again'}'),
+      ));
+      return;
+    }
     _stopTracking();
-    await provider.advanceStatus(widget.orderId);
     if (mounted) Navigator.of(context).pop();
   }
 

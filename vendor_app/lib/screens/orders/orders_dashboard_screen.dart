@@ -151,9 +151,61 @@ class _OrderCard extends StatelessWidget {
   final VendorOrder order;
   const _OrderCard({required this.order});
 
+  /// Accept taps report the outcome — the provider swallows API errors
+  /// into [OrderProvider.lastError], so the snack is the only way a failed
+  /// accept ever reaches the vendor.
+  Future<void> _acceptOrder(BuildContext context) async {
+    final provider = context.read<OrderProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+    final ok = await provider.acceptOrder(order.id);
+    messenger.showSnackBar(SnackBar(
+      content: Text(ok
+          ? 'Order accepted'
+          : 'Could not accept order — ${provider.lastError ?? 'try again'}'),
+    ));
+  }
+
+  /// One-tap reject is replaced by a reason dialog (the reason is sent to
+  /// the backend via the cancel endpoint); the result gets a snack either
+  /// way.
+  Future<void> _rejectOrder(BuildContext context) async {
+    final provider = context.read<OrderProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (_) => const _RejectReasonDialog(),
+    );
+    if (reason == null) return; // dialog dismissed without rejecting
+    final ok = await provider.rejectOrder(order.id, reason: reason);
+    messenger.showSnackBar(SnackBar(
+      content: Text(ok
+          ? 'Order rejected'
+          : 'Could not reject order — ${provider.lastError ?? 'try again'}'),
+    ));
+  }
+
+  Future<void> _advanceStatus(BuildContext context) async {
+    final provider = context.read<OrderProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+    final next = order.status.nextFor(order.fulfillmentType);
+    // Pickup collection reads "Picked Up", matching the product's pickup
+    // flow (… → Ready for Pickup → Picked Up).
+    final label = (order.fulfillmentType == FulfillmentType.pickup &&
+            next == OrderStatus.completed)
+        ? 'Picked Up'
+        : (next?.label ?? 'next status');
+    final ok = await provider.advanceStatus(order.id);
+    messenger.showSnackBar(SnackBar(
+      content: Text(ok
+          ? 'Order marked as $label'
+          : 'Could not update order — ${provider.lastError ?? 'try again'}'),
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     final orderProvider = context.read<OrderProvider>();
+    final busy = orderProvider.isBusy(order.id);
     final timeFmt = DateFormat('h:mm a');
 
     return Card(
@@ -203,7 +255,7 @@ class _OrderCard extends StatelessWidget {
                   children: [
                     Expanded(
                       child: OutlinedButton(
-                        onPressed: () => orderProvider.rejectOrder(order.id),
+                        onPressed: busy ? null : () => _rejectOrder(context),
                         style: OutlinedButton.styleFrom(
                           minimumSize: const Size.fromHeight(40),
                           foregroundColor: AppColors.danger,
@@ -215,7 +267,7 @@ class _OrderCard extends StatelessWidget {
                     const SizedBox(width: 10),
                     Expanded(
                       child: ElevatedButton(
-                        onPressed: () => orderProvider.acceptOrder(order.id),
+                        onPressed: busy ? null : () => _acceptOrder(context),
                         style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(40)),
                         child: const Text('Accept'),
                       ),
@@ -240,7 +292,7 @@ class _OrderCard extends StatelessWidget {
                     width: double.infinity,
                     height: 40,
                     child: ElevatedButton(
-                      onPressed: () => orderProvider.advanceStatus(order.id),
+                      onPressed: busy ? null : () => _advanceStatus(context),
                       child: Text('Mark as $label'),
                     ),
                   );
@@ -275,5 +327,103 @@ class _OrderCard extends StatelessWidget {
             ? 'Scheduled · ${DateFormat('MMM d, h:mm a').format(order.scheduledFor!)}'
             : 'Scheduled';
     }
+  }
+}
+
+/// Confirmation dialog shown before rejecting an order: asks for a reason
+/// (quick chips + optional custom text) so the customer gets a meaningful
+/// cancellation message. Pops with the chosen reason, or null on cancel.
+class _RejectReasonDialog extends StatefulWidget {
+  const _RejectReasonDialog();
+
+  @override
+  State<_RejectReasonDialog> createState() => _RejectReasonDialogState();
+}
+
+class _RejectReasonDialogState extends State<_RejectReasonDialog> {
+  static const _reasons = [
+    'Out of stock',
+    'Too busy right now',
+    'Closing soon',
+    'No rider available',
+  ];
+
+  late final TextEditingController _custom;
+  String? _selected = _reasons.first;
+  bool _submitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _custom = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _custom.dispose();
+    super.dispose();
+  }
+
+  /// A typed reason overrides the chip; the prefilled first chip keeps the
+  /// reason non-empty so the backend always receives one.
+  String get _reason {
+    final custom = _custom.text.trim();
+    return custom.isNotEmpty ? custom : (_selected ?? '');
+  }
+
+  void _submit() {
+    if (_submitting) return;
+    setState(() => _submitting = true);
+    Navigator.of(context).pop(_reason);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final customText = _custom.text.trim();
+    return AlertDialog(
+      title: const Text('Why are you rejecting this order?'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final reason in _reasons)
+                  ChoiceChip(
+                    label: Text(reason),
+                    selected: _selected == reason && customText.isEmpty,
+                    onSelected: (_) => setState(() {
+                      _selected = reason;
+                      _custom.clear();
+                    }),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _custom,
+              decoration: const InputDecoration(labelText: 'Or type a reason'),
+              onChanged: (_) => setState(() {}),
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _submit(),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _submitting ? null : () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: _submitting ? null : _submit,
+          style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
+          child: const Text('Reject Order'),
+        ),
+      ],
+    );
   }
 }

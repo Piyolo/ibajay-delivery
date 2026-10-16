@@ -267,7 +267,9 @@ class OrderDetailScreen extends StatelessWidget {
               )
             else if (order.status.nextFor(order.fulfillmentType) != null)
               ElevatedButton(
-                onPressed: () => orderProvider.advanceStatus(order.id),
+                onPressed: orderProvider.isBusy(order.id)
+                    ? null
+                    : () => _advanceStatus(context, orderProvider, order),
                 child: Text(
                     'Mark as ${order.status.nextFor(order.fulfillmentType)!.label}'),
               ),
@@ -275,6 +277,21 @@ class OrderDetailScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// Advances the order and reports the outcome — the provider records
+  /// failures in lastError instead of throwing, so the snack is how a
+  /// failed transition becomes visible.
+  Future<void> _advanceStatus(
+      BuildContext context, OrderProvider provider, VendorOrder order) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final label = order.status.nextFor(order.fulfillmentType)!.label;
+    final ok = await provider.advanceStatus(order.id);
+    messenger.showSnackBar(SnackBar(
+      content: Text(ok
+          ? 'Order marked as $label'
+          : 'Could not update order — ${provider.lastError ?? 'try again'}'),
+    ));
   }
 
   IconData _fulfillmentIcon(FulfillmentType type) {

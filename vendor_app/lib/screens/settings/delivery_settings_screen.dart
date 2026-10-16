@@ -151,7 +151,11 @@ class _DeliverySettingsScreenState extends State<DeliverySettingsScreen> {
             controller: controller,
             keyboardType: TextInputType.number,
             textAlign: TextAlign.right,
-            onChanged: (v) => onChanged(double.tryParse(v) ?? value),
+            onChanged: (v) {
+              // A zero fee is legitimate (free delivery) — negatives are not.
+              final fee = double.tryParse(v);
+              if (fee != null && fee >= 0) onChanged(fee);
+            },
           ),
         ),
       ],

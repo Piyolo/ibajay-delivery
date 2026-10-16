@@ -47,6 +47,12 @@ class _PromotionFormScreenState extends State<PromotionFormScreen> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
 
+    // The date picker returns midnight; extend it to end-of-day so a
+    // promotion picked "until the 20th" stays live through that day.
+    final endsAt = _endsAt == null
+        ? null
+        : DateTime(_endsAt!.year, _endsAt!.month, _endsAt!.day, 23, 59);
+
     final promo = StorePromotion(
       id: 'new',
       title: _title.text.trim(),
@@ -55,7 +61,7 @@ class _PromotionFormScreenState extends State<PromotionFormScreen> {
       discountValue: double.tryParse(_value.text) ?? 0,
       code: _code.text.trim().isEmpty ? null : _code.text.trim().toUpperCase(),
       minSubtotal: double.tryParse(_minSubtotal.text) ?? 0,
-      endsAt: _endsAt,
+      endsAt: endsAt,
     );
 
     final provider = context.read<PromotionsProvider>();
@@ -156,6 +162,12 @@ class _PromotionFormScreenState extends State<PromotionFormScreen> {
                   controller: _minSubtotal,
                   keyboardType: TextInputType.number,
                   decoration: const InputDecoration(hintText: '0', prefixText: '₱ '),
+                  validator: (v) {
+                    final text = (v ?? '').trim();
+                    if (text.isEmpty) return null; // optional field
+                    final min = num.tryParse(text);
+                    return (min == null || min < 0) ? 'Enter a valid amount' : null;
+                  },
                 ),
                 const SizedBox(height: 14),
                 const Text('End Date (optional)', style: TextStyle(fontWeight: FontWeight.w600)),

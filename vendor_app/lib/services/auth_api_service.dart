@@ -1,4 +1,5 @@
 import 'api_client.dart';
+import 'vendor_api_service.dart';
 
 class AuthTokens {
   const AuthTokens({required this.accessToken, required this.refreshToken});
@@ -128,6 +129,18 @@ class AuthApiService {
       });
     } on ApiException catch (e) {
       throw AuthException(e.message, statusCode: e.statusCode);
+    }
+  }
+
+  /// PUT /auth/profile — persists the account's full name (the only
+  /// account field the backend accepts edits for). The shared [ApiClient]
+  /// already carries the saved access token. Throws [StoreApiException]
+  /// with the backend's detail on non-2xx.
+  Future<void> updateProfileName(String fullName) async {
+    try {
+      await _client.put('/auth/profile', body: {'full_name': fullName});
+    } on ApiException catch (e) {
+      throw StoreApiException(e.message, statusCode: e.statusCode);
     }
   }
 

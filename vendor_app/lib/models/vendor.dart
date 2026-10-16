@@ -360,6 +360,21 @@ const double kIbajayTownLat = 11.8211;
 const double kIbajayTownLng = 122.1617;
 const double kIbajayServiceRadiusKm = 15.0;
 
+/// Current time in Philippine Standard Time (UTC+8). The backend buckets
+/// "today" analytics in PH time, so day comparisons use this instead of the
+/// device's local timezone.
+DateTime phNow() => DateTime.now().toUtc().add(const Duration(hours: 8));
+
+/// True when [date] falls on the same calendar day as now, measured in PH
+/// time (UTC+8) — matching the backend's analytics day buckets.
+bool isSamePhDay(DateTime date) {
+  final phDate = date.toUtc().add(const Duration(hours: 8));
+  final now = phNow();
+  return phDate.year == now.year &&
+      phDate.month == now.month &&
+      phDate.day == now.day;
+}
+
 /// Neighboring municipalities — a reverse-geocoded pick matching one of
 /// these is outside Ibajay even when it slips inside the radius.
 const List<String> kNeighboringMunicipalities = [

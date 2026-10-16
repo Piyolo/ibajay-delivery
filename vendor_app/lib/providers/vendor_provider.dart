@@ -460,14 +460,27 @@ class VendorProvider extends ChangeNotifier {
     notifyListeners();
     try {
       // Upload registration-time picks now that the request is
-      // authenticated; failures don't block store creation.
+      // authenticated. A failed upload never blocks store creation — the
+      // image is omitted and the failure is reported in the success
+      // notice, so the vendor can add it later from Store Profile.
       String? logoUrl = _pendingLogoPath;
       String? bannerUrl = _pendingBannerPath;
+      final failedUploads = <String>[];
       if (logoUrl != null && !logoUrl.startsWith('http')) {
-        logoUrl = await api.uploadImage(logoUrl);
+        try {
+          logoUrl = await api.uploadImage(logoUrl);
+        } on StoreApiException {
+          logoUrl = null;
+          failedUploads.add('logo');
+        }
       }
       if (bannerUrl != null && !bannerUrl.startsWith('http')) {
-        bannerUrl = await api.uploadImage(bannerUrl);
+        try {
+          bannerUrl = await api.uploadImage(bannerUrl);
+        } on StoreApiException {
+          bannerUrl = null;
+          failedUploads.add('banner');
+        }
       }
 
       final dayNames = OperatingHours.defaultWeek().map((h) => h.day).toList();
@@ -493,6 +506,12 @@ class VendorProvider extends ChangeNotifier {
       await _loadStore();
       _hasCompletedStoreSetup = true;
       await PreferencesService.setBool(PreferencesService.kSetupDone, true);
+      if (failedUploads.isNotEmpty) {
+        // Creation succeeded — carry the upload failure as a notice the
+        // setup screen shows before moving on.
+        lastAuthError =
+            'Store created, but the ${failedUploads.join(' and ')} upload failed — you can add it later in Store Profile.';
+      }
       return true;
     } on StoreApiException catch (e) {
       lastAuthError = e.message;
@@ -559,20 +578,23 @@ class VendorProvider extends ChangeNotifier {
   Future<void> toggleStoreOpen(bool open) =>
       setStoreStatus(open ? StoreStatus.open : StoreStatus.closed);
 
+  /// Persists store fields via PUT /vendor/me and the owner name via
+  /// PUT /auth/profile (the only account field the backend edits).
+  ///
+  /// The owner name is applied optimistically and rolled back when the
+  /// account update fails. [lastError] carries the first failure of this
+  /// call (null on full success), so callers can report honestly.
   Future<void> updateProfile({
     String? ownerName,
     String? storeName,
     String? description,
     String? address,
     String? contactNumber,
-    String? email,
     String? logoUrl,
     String? bannerUrl,
   }) async {
-    // Owner name/email are user-account fields — no backend endpoint yet,
-    // so they update the local profile only.
+    final previousOwnerName = _vendor.ownerName;
     if (ownerName != null) _vendor.ownerName = ownerName;
-    if (email != null) _vendor.email = email;
 
     final body = <String, dynamic>{
       if (storeName != null) 'store_name': storeName,
@@ -584,15 +606,28 @@ class VendorProvider extends ChangeNotifier {
     };
 
     notifyListeners();
+    String? error;
     if (body.isNotEmpty) {
       try {
         final json = await api.updateStore(body);
         _vendor = VendorProfile.fromApi(json);
-        lastError = null;
+        // The store response may echo a stale owner name (the account
+        // update below hasn't run yet) — keep the fresh value.
+        if (ownerName != null) _vendor.ownerName = ownerName;
       } on StoreApiException catch (e) {
-        lastError = e.message;
+        error = e.message;
       }
     }
+    if (ownerName != null) {
+      try {
+        await _auth.updateProfileName(ownerName);
+      } on StoreApiException catch (e) {
+        // The name never reached the account — undo the optimistic update.
+        _vendor.ownerName = previousOwnerName;
+        error ??= e.message;
+      }
+    }
+    lastError = error;
     notifyListeners();
     await _persistVendor();
   }

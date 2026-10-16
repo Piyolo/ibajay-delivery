@@ -232,7 +232,12 @@ class _FoodFormScreenState extends State<FoodFormScreen> {
                             controller: _price,
                             keyboardType: TextInputType.number,
                             decoration: const InputDecoration(hintText: '0'),
-                            validator: (v) => (double.tryParse(v ?? '') == null) ? 'Enter a valid price' : null,
+                            validator: (v) {
+                              final price = num.tryParse((v ?? '').trim());
+                              return (price == null || price <= 0)
+                                  ? 'Enter a valid price'
+                                  : null;
+                            },
                           ),
                         ],
                       ),

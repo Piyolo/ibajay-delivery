@@ -66,41 +66,32 @@ class AccountCenterScreen extends StatelessWidget {
                 label: 'Full name',
                 initialValue: vendor.ownerName,
                 keyboardType: TextInputType.name,
-                save: (v) => context.read<VendorProvider>().updateProfile(ownerName: v),
+                // Wait for the server result; lastError is null only when
+                // the account update really went through.
+                save: (v) async {
+                  final provider = context.read<VendorProvider>();
+                  await provider.updateProfile(ownerName: v);
+                  return provider.lastError;
+                },
               ),
             ),
           ),
+          // Email and mobile are account identifiers the backend does not
+          // accept edits for — shown read-only instead of a dialog that
+          // fakes a save.
           _tile(
             context,
             Icons.mail_outline,
             'Email Address',
             subtitle: vendor.email,
-            onTap: () => showDialog<void>(
-              context: context,
-              builder: (_) => _EditFieldDialog(
-                title: 'Email Address',
-                label: 'Email',
-                initialValue: vendor.email,
-                keyboardType: TextInputType.emailAddress,
-                save: (v) => context.read<VendorProvider>().updateProfile(email: v),
-              ),
-            ),
+            hint: 'Contact support to change your email',
           ),
           _tile(
             context,
             Icons.phone_outlined,
             'Mobile Number',
             subtitle: vendor.mobileNumber,
-            onTap: () => showDialog<void>(
-              context: context,
-              builder: (_) => _EditFieldDialog(
-                title: 'Mobile Number',
-                label: 'Mobile number',
-                initialValue: vendor.mobileNumber,
-                keyboardType: TextInputType.phone,
-                save: (v) => context.read<VendorProvider>().updateProfile(contactNumber: v),
-              ),
-            ),
+            hint: 'Contact support to change your mobile number',
           ),
           const SizedBox(height: 20),
           const _SectionLabel('Security'),
@@ -132,22 +123,38 @@ class AccountCenterScreen extends StatelessWidget {
     );
   }
 
+  /// A row with an optional [hint] line. When [onTap] is null the row is
+  /// read-only: no chevron and no tap affordance.
   Widget _tile(
     BuildContext context,
     IconData icon,
     String title, {
     String? subtitle,
-    required VoidCallback onTap,
+    String? hint,
+    VoidCallback? onTap,
   }) {
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
         leading: Icon(icon, color: AppColors.textSecondary),
         title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-        subtitle: subtitle != null && subtitle.isNotEmpty
-            ? Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis)
-            : null,
-        trailing: const Icon(Icons.chevron_right, color: AppColors.textSecondary),
+        subtitle: subtitle == null && hint == null
+            ? null
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (subtitle != null && subtitle.isNotEmpty)
+                    Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
+                  if (hint != null)
+                    Text(hint,
+                        style: const TextStyle(
+                            fontSize: 11, color: AppColors.textSecondary)),
+                ],
+              ),
+        trailing: onTap == null
+            ? null
+            : const Icon(Icons.chevron_right, color: AppColors.textSecondary),
         onTap: onTap,
       ),
     );
@@ -163,7 +170,10 @@ class _EditFieldDialog extends StatefulWidget {
   final String label;
   final String initialValue;
   final TextInputType keyboardType;
-  final Future<void> Function(String value) save;
+
+  /// Persists the value; resolves with the failure message, or null when
+  /// the save really succeeded server-side.
+  final Future<String?> Function(String value) save;
 
   const _EditFieldDialog({
     required this.title,
@@ -195,12 +205,18 @@ class _EditFieldDialogState extends State<_EditFieldDialog> {
 
   Future<void> _submit() async {
     final value = _ctrl.text.trim();
-    if (value.isEmpty) return;
+    if (value.isEmpty || _saving) return;
     setState(() => _saving = true);
+    // Wait for the server outcome BEFORE dismissing, so the snack that
+    // follows reflects what actually happened — no fake "saved".
+    final error = await widget.save(value);
+    if (!mounted) return;
     final messenger = ScaffoldMessenger.of(context);
     Navigator.of(context).pop();
-    await widget.save(value);
-    messenger.showSnackBar(SnackBar(content: Text('${widget.title} — saved')));
+    messenger.showSnackBar(SnackBar(
+      content:
+          Text(error == null ? '${widget.title} — saved' : 'Not saved — $error'),
+    ));
   }
 
   @override

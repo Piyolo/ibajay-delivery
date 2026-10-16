@@ -26,7 +26,6 @@ class FakeVendorProvider extends ChangeNotifier implements VendorProvider {
     String? description,
     String? address,
     String? contactNumber,
-    String? email,
     String? logoUrl,
     String? bannerUrl,
   }) async {}
@@ -105,39 +104,33 @@ void main() {
       expect(find.text('Account Settings'), findsOneWidget);
     });
 
-    testWidgets('Email Address dialog cancel does not throw error', (tester) async {
+    testWidgets('Email Address row is read-only — no edit dialog opens', (tester) async {
       final provider = FakeVendorProvider(mockVendor);
       await tester.pumpWidget(buildTestableWidget(const AccountCenterScreen(), provider));
       await tester.pumpAndSettle();
 
+      // The row explains why it can't be edited instead of faking a save.
+      expect(find.text('Email Address'), findsOneWidget);
+      expect(find.text('Contact support to change your email'), findsOneWidget);
+
+      // Tapping the row must not open an edit dialog.
       await tester.tap(find.text('Email Address'));
       await tester.pumpAndSettle();
-
-      expect(find.text('Email'), findsOneWidget);
-      await tester.enterText(find.byType(TextField), 'updated@example.com');
-      await tester.pump();
-
-      await tester.tap(find.text('Cancel'));
-      await tester.pumpAndSettle();
-
+      expect(find.byType(TextField), findsNothing);
       expect(find.text('Email'), findsNothing);
     });
 
-    testWidgets('Mobile Number dialog cancel does not throw error', (tester) async {
+    testWidgets('Mobile Number row is read-only — no edit dialog opens', (tester) async {
       final provider = FakeVendorProvider(mockVendor);
       await tester.pumpWidget(buildTestableWidget(const AccountCenterScreen(), provider));
       await tester.pumpAndSettle();
 
+      expect(find.text('Mobile Number'), findsOneWidget);
+      expect(find.text('Contact support to change your mobile number'), findsOneWidget);
+
       await tester.tap(find.text('Mobile Number'));
       await tester.pumpAndSettle();
-
-      expect(find.text('Mobile number'), findsOneWidget);
-      await tester.enterText(find.byType(TextField), '09999999999');
-      await tester.pump();
-
-      await tester.tap(find.text('Cancel'));
-      await tester.pumpAndSettle();
-
+      expect(find.byType(TextField), findsNothing);
       expect(find.text('Mobile number'), findsNothing);
     });
 

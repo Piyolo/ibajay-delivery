@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../models/vendor.dart';
 import '../../providers/menu_provider.dart';
 import '../../providers/order_provider.dart';
 import '../../providers/vendor_provider.dart';
@@ -27,7 +28,8 @@ class DashboardScreen extends StatelessWidget {
       ...menu.items.where((i) => i.isFeatured),
       ...menu.items.where((i) => !i.isFeatured),
     ];
-    final hour = DateTime.now().hour;
+    // PH time (UTC+8) — matches the backend's analytics day buckets.
+    final hour = phNow().hour;
     final greeting = hour < 12 ? 'Good morning' : (hour < 18 ? 'Good afternoon' : 'Good evening');
 
     return Scaffold(

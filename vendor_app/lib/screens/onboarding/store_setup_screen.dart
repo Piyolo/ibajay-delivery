@@ -191,6 +191,12 @@ class _StoreSetupScreenState extends State<StoreSetupScreen> {
       _error = ok ? null : (provider.lastAuthError ?? 'Could not create the store');
     });
     if (!ok) return;
+    // Store created — but e.g. a failed logo upload is carried as a
+    // notice; surface it instead of silently navigating away.
+    final notice = provider.lastAuthError;
+    if (notice != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(notice)));
+    }
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const MainShell()),
       (route) => false,

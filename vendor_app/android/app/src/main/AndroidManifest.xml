@@ -3,6 +3,11 @@
          fails with "No network connection" (debug/profile manifests have
          it, which is why flutter run always worked). -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Location: delivery GPS streaming + store-address picking. Without
+         these geolocator throws on-device (release builds only merge
+         src/main) and "Start Delivery" silently does nothing. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <application
         android:label="ibajay_eats_vendor"
         android:name="${applicationName}"
